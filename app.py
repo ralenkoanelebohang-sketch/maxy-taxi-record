@@ -216,12 +216,10 @@ def generate_invoice_pdf(invoice, client=None):
     # Header with logo (Letterhead)
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(logo_path):
-        logo = Image(logo_path, width=90*mm, height=45*mm)
+        logo = Image(logo_path, width=170*mm, height=38*mm)
         logo.hAlign = 'CENTER'
         elements.append(logo)
         elements.append(Spacer(1, 2*mm))
-        elements.append(Paragraph(f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}", subtitle))
-        elements.append(Paragraph(f"Email: {BUSINESS_EMAIL}  |  {BUSINESS_LOCATION}", subtitle))
     else:
         elements.append(Paragraph(BUSINESS_NAME.upper(), title_style))
         elements.append(Paragraph(BUSINESS_TAGLINE, subtitle))
@@ -349,12 +347,10 @@ def generate_quotation_pdf(quote, client=None):
     # Header with logo (Letterhead)
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(logo_path):
-        logo = Image(logo_path, width=90*mm, height=45*mm)
+        logo = Image(logo_path, width=170*mm, height=38*mm)
         logo.hAlign = 'CENTER'
         elements.append(logo)
         elements.append(Spacer(1, 2*mm))
-        elements.append(Paragraph(f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}", subtitle))
-        elements.append(Paragraph(f"Email: {BUSINESS_EMAIL}  |  {BUSINESS_LOCATION}", subtitle))
     else:
         elements.append(Paragraph(BUSINESS_NAME.upper(), title_style))
         elements.append(Paragraph(BUSINESS_TAGLINE, subtitle))
@@ -456,7 +452,7 @@ def vehicle_options():
 
 # ---------------------- PAGES ----------------------
 def page_dashboard():
-    st.header("DASHBOARD")
+    st.header("Dashboard")
     today = date.today()
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
@@ -477,12 +473,12 @@ def page_dashboard():
                     d.get('credit_lnlvip', pd.Series([0])).sum())
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("TODAY CASH", money(today_df['cash_collected'].sum()))
-        c2.metric("THIS WEEK CASH", money(week_df['cash_collected'].sum()))
-        c3.metric("THIS MONTH CASH", money(month_df['cash_collected'].sum()))
-        c4.metric("MONTH CREDITS", money(total_credits(month_df)))
+        c1.metric("Today Cash", money(today_df['cash_collected'].sum()))
+        c2.metric("This Week Cash", money(week_df['cash_collected'].sum()))
+        c3.metric("This Month Cash", money(month_df['cash_collected'].sum()))
+        c4.metric("Month Credits", money(total_credits(month_df)))
 
-        st.subheader("THIS MONTH BY VEHICLE")
+        st.subheader("This Month by Vehicle")
         if not month_df.empty:
             by_veh = month_df.groupby('vehicle_name').agg({
                 'cash_collected': 'sum',
@@ -500,27 +496,27 @@ def page_dashboard():
                                        by_veh['credit_lnlvip'])
             by_veh['Net'] = by_veh['cash_collected'] + by_veh['Total Credits'] - by_veh['fuel_cost'] - by_veh['other_expenses']
             by_veh = by_veh[['vehicle_name', 'cash_collected', 'Total Credits', 'fuel_cost', 'other_expenses', 'trips', 'Net']]
-            by_veh.columns = ['VEHICLE', 'CASH IN', 'CREDITS', 'FUEL COST', 'OTHER EXP', 'TRIPS', 'NET']
+            by_veh.columns = ['Vehicle', 'Cash In', 'Credits', 'Fuel Cost', 'Other Exp', 'Trips', 'Net']
             st.dataframe(by_veh.style.format({
-                'CASH IN': 'M {:,.0f}', 'CREDITS': 'M {:,.0f}',
-                'FUEL COST': 'M {:,.0f}', 'OTHER EXP': 'M {:,.0f}',
-                'NET': 'M {:,.0f}'
+                'Cash In': 'M {:,.0f}', 'Credits': 'M {:,.0f}',
+                'Fuel Cost': 'M {:,.0f}', 'Other Exp': 'M {:,.0f}',
+                'Net': 'M {:,.0f}'
             }), use_container_width=True, hide_index=True)
         else:
-            st.info("NO RECORDS THIS MONTH YET.")
+            st.info("No records this month yet.")
     else:
-        st.info("NO DAILY RECORDS YET. GO TO DAILY ENTRY TO START LOGGING.")
+        st.info("No daily records yet. Go to Daily Entry to start logging.")
 
     # Recent invoices
-    st.subheader("RECENT INVOICES")
+    st.subheader("Recent Invoices")
     inv_df = query_df("SELECT invoice_number, client_name, invoice_date, amount, amount_paid, status FROM invoices ORDER BY id DESC LIMIT 5")
     if not inv_df.empty:
         st.dataframe(inv_df, use_container_width=True, hide_index=True)
     else:
-        st.caption("NO INVOICES YET.")
+        st.caption("No invoices yet.")
 
 def page_daily_entry():
-    st.header("DAILY RECORD ENTRY")
+    st.header("Daily Record Entry")
 
     with st.form("daily_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -570,7 +566,7 @@ def page_daily_entry():
             st.balloons()
 
 def page_records():
-    st.header("ALL DAILY RECORDS")
+    st.header("All Daily Records")
 
     df = query_df("""
         SELECT id, record_date, vehicle_name, plate, cash_collected, fuel_cost,
@@ -581,21 +577,21 @@ def page_records():
     """)
 
     if df.empty:
-        st.info("NO RECORDS YET.")
+        st.info("No records yet.")
         return
 
     # Filters
     c1, c2, c3 = st.columns(3)
     with c1:
         vehicles = ["All"] + sorted(df['vehicle_name'].unique().tolist())
-        sel_veh = st.selectbox("VEHICLE", vehicles)
+        sel_veh = st.selectbox("Vehicle", vehicles)
     with c2:
         min_d = pd.to_datetime(df['record_date']).min().date()
         max_d = pd.to_datetime(df['record_date']).max().date()
-        date_range = st.date_input("DATE RANGE", value=(min_d, max_d))
+        date_range = st.date_input("Date range", value=(min_d, max_d))
     with c3:
         st.write("")  # spacer
-        if st.button("REFRESH"):
+        if st.button("Refresh"):
             st.rerun()
 
     filtered = df.copy()
@@ -627,16 +623,16 @@ def page_records():
                      filtered['credit_worldvision'].sum() + filtered['credit_waleslink'].sum() +
                      filtered['credit_lnlvip'].sum())
     st.markdown(
-        f"**TOTALS (FILTERED):** CASH **{money(filtered['cash_collected'].sum())}** | "
-        f"CREDITS **{money(total_credits)}** | "
-        f"FUEL **{money(filtered['fuel_cost'].sum())}** | "
-        f"OTHER EXP **{money(filtered['other_expenses'].sum())}** | "
-        f"TRIPS **{int(filtered['trips'].sum())}**"
+        f"**Totals (filtered):** Cash **{money(filtered['cash_collected'].sum())}** | "
+        f"Credits **{money(total_credits)}** | "
+        f"Fuel **{money(filtered['fuel_cost'].sum())}** | "
+        f"Other Exp **{money(filtered['other_expenses'].sum())}** | "
+        f"Trips **{int(filtered['trips'].sum())}**"
     )
 
     # ===== DELETE RECORD =====
     st.markdown("---")
-    st.subheader("DELETE A RECORD")
+    st.subheader("Delete a Record")
     st.caption("Select a record below if you made a mistake and want to remove it.")
 
     if not filtered.empty:
@@ -648,12 +644,12 @@ def page_records():
             options.append(label)
             id_map[label] = row['id']
 
-        selected_label = st.selectbox("SELECT RECORD TO DELETE", options)
+        selected_label = st.selectbox("Select record to delete", options)
         selected_id = id_map[selected_label]
 
         col_del1, col_del2 = st.columns([1, 3])
         with col_del1:
-            if st.button("DELETE RECORD", type="primary"):
+            if st.button("Delete Record", type="primary"):
                 execute("DELETE FROM daily_records WHERE id = ?", (selected_id,))
                 st.success(f"Record ID {selected_id} has been deleted.")
                 st.rerun()
@@ -663,10 +659,10 @@ def page_records():
     # Export
     st.markdown("---")
     csv = filtered.to_csv(index=False).encode('utf-8')
-    st.download_button("DOWNLOAD CSV", csv, "maxy_taxi_records.csv", "text/csv")
+    st.download_button("Download CSV", csv, "maxy_taxi_records.csv", "text/csv")
 
 def page_vehicles():
-    st.header("FLEET")
+    st.header("Fleet")
     df = query_df("""
         SELECT vehicle_name, plate,
                SUM(cash_collected) as total_cash,
@@ -693,7 +689,7 @@ def page_vehicles():
                 st.caption("No records yet for this vehicle.")
 
 def page_clients():
-    st.header("CLIENTS")
+    st.header("Clients")
 
     with st.expander("➕ Add New Client", expanded=False):
         with st.form("client_form"):
@@ -722,7 +718,7 @@ def page_clients():
         st.dataframe(clients[['id', 'name', 'contact_person', 'phone', 'email', 'tin']], use_container_width=True, hide_index=True)
 
 def page_quotations():
-    st.header("QUOTATIONS")
+    st.header("Quotations")
 
     # Create new
     with st.expander("➕ Create New Quotation", expanded=True):
@@ -774,7 +770,7 @@ def page_quotations():
                     st.rerun()
 
     # List
-    st.subheader("ALL QUOTATIONS")
+    st.subheader("All Quotations")
     qdf = query_df("SELECT id, quote_number, client_name, quote_date, valid_until, amount, status FROM quotations ORDER BY id DESC")
     if qdf.empty:
         st.info("No quotations yet.")
@@ -801,7 +797,7 @@ def page_quotations():
             )
 
 def page_invoices():
-    st.header("INVOICES")
+    st.header("Invoices")
 
     with st.expander("➕ Create New Invoice", expanded=True):
         clients = query_df("SELECT id, name FROM clients ORDER BY name")
@@ -858,7 +854,7 @@ def page_invoices():
                     st.success(f"Invoice {inv_number} created!")
                     st.rerun()
 
-    st.subheader("ALL INVOICES")
+    st.subheader("All Invoices")
     idf = query_df("""
         SELECT id, invoice_number, client_name, invoice_date, due_date, amount, amount_paid, status
         FROM invoices ORDER BY id DESC
@@ -900,7 +896,7 @@ def page_invoices():
                     st.rerun()
 
 def page_export():
-    st.header("BACKUP & EXPORT")
+    st.header("Backup & Export")
     st.write("Download your full data regularly. On Streamlit Community Cloud the database resets if the app sleeps for long periods, so keep backups.")
 
     # Daily records
@@ -929,47 +925,33 @@ def main():
     if os.path.exists(logo_path):
         st.sidebar.image(logo_path, use_container_width=True)
     else:
-        st.sidebar.markdown("""
-        <div style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); 
-                    padding: 16px 12px; border-radius: 10px; margin-bottom: 12px;
-                    border-left: 5px solid #f5a623;">
-            <h2 style="color: #f5a623; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px;">
-                MAXY TAXI
-            </h2>
-            <p style="color: #ffffff; margin: 4px 0 0 0; font-size: 11px; letter-spacing: 1.5px;">
-                SAFE • QUICK • RELIABLE
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.sidebar.markdown("### MAXY TAXI")
+        st.sidebar.caption("SAFE • QUICK • RELIABLE")
 
     pages = {
-        "DASHBOARD": page_dashboard,
-        "DAILY ENTRY": page_daily_entry,
-        "RECORDS": page_records,
-        "FLEET": page_vehicles,
-        "CLIENTS": page_clients,
-        "QUOTATIONS": page_quotations,
-        "INVOICES": page_invoices,
-        "BACKUP / EXPORT": page_export,
+        "Dashboard": page_dashboard,
+        "Daily Entry": page_daily_entry,
+        "Records": page_records,
+        "Fleet": page_vehicles,
+        "Clients": page_clients,
+        "Quotations": page_quotations,
+        "Invoices": page_invoices,
+        "Backup / Export": page_export,
     }
 
-    choice = st.sidebar.radio("MENU", list(pages.keys()), label_visibility="collapsed")
+    choice = st.sidebar.radio("Menu", list(pages.keys()), label_visibility="collapsed")
 
     st.sidebar.markdown("---")
 
-    # Contact details matching letterhead
-    st.sidebar.markdown("""
-    <div style="font-size: 12px; line-height: 1.6; color: #ccc;">
-        <p style="margin: 0 0 6px 0;"><b style="color: #f5a623;">CONTACT</b></p>
-        <p style="margin: 0;">📞 +266 27335933 / 68335933</p>
-        <p style="margin: 0;">💬 WhatsApp: +266 56432571</p>
-        <p style="margin: 0;">✉️ maxytaxicab@gmail.com</p>
-        <p style="margin: 8px 0 0 0;">📍 Puma House 12<br>United Nations Road, Maseru</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Contact details
+    st.sidebar.markdown("**Contact**")
+    st.sidebar.caption("📞 +266 27335933 / 68335933")
+    st.sidebar.caption("💬 WhatsApp: +266 56432571")
+    st.sidebar.caption("✉️ maxytaxicab@gmail.com")
+    st.sidebar.caption("📍 Puma House 12, United Nations Road, Maseru")
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("5× HONDA FIT + ALPHARD")
+    st.sidebar.caption("5× Honda Fit + Alphard")
 
     pages[choice]()
 
