@@ -68,7 +68,7 @@ BUSINESS_TIN = ""            # Add your TIN later if needed
 CURRENCY = "M"
 
 # Monthly credit clients
-CREDIT_CLIENTS = ["Alliance", "Lehae", "World Vision", "Waleslink"]
+CREDIT_CLIENTS = ["Alliance", "Lehae", "World Vision", "Waleslink", "LNLVIP"]
 
 VEHICLES = [
     {"id": 1, "name": "Honda Fit 1", "plate": "A 940 BDL", "type": "Honda Fit"},
@@ -105,13 +105,14 @@ def init_db():
             credit_lehae REAL DEFAULT 0,
             credit_worldvision REAL DEFAULT 0,
             credit_waleslink REAL DEFAULT 0,
+            credit_lnlvip REAL DEFAULT 0,
             driver_name TEXT,
             notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
     # Add new columns if upgrading existing DB
-    for col in ["credit_alliance", "credit_lehae", "credit_worldvision", "credit_waleslink"]:
+    for col in ["credit_alliance", "credit_lehae", "credit_worldvision", "credit_waleslink", "credit_lnlvip"]:
         try:
             c.execute(f"ALTER TABLE daily_records ADD COLUMN {col} REAL DEFAULT 0")
         except:
@@ -215,12 +216,13 @@ def generate_invoice_pdf(invoice, client=None):
     # Header with logo (Letterhead)
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(logo_path):
-        logo = Image(logo_path, width=170*mm, height=35*mm)
+        logo = Image(logo_path, width=90*mm, height=45*mm)
         logo.hAlign = 'CENTER'
         elements.append(logo)
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 2*mm))
+        elements.append(Paragraph(f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}", subtitle))
+        elements.append(Paragraph(f"Email: {BUSINESS_EMAIL}  |  {BUSINESS_LOCATION}", subtitle))
     else:
-        # Fallback text header if logo not found
         elements.append(Paragraph(BUSINESS_NAME.upper(), title_style))
         elements.append(Paragraph(BUSINESS_TAGLINE, subtitle))
         elements.append(Paragraph(BUSINESS_LOCATION, subtitle))
@@ -347,10 +349,12 @@ def generate_quotation_pdf(quote, client=None):
     # Header with logo (Letterhead)
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(logo_path):
-        logo = Image(logo_path, width=170*mm, height=35*mm)
+        logo = Image(logo_path, width=90*mm, height=45*mm)
         logo.hAlign = 'CENTER'
         elements.append(logo)
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 2*mm))
+        elements.append(Paragraph(f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}", subtitle))
+        elements.append(Paragraph(f"Email: {BUSINESS_EMAIL}  |  {BUSINESS_LOCATION}", subtitle))
     else:
         elements.append(Paragraph(BUSINESS_NAME.upper(), title_style))
         elements.append(Paragraph(BUSINESS_TAGLINE, subtitle))
@@ -469,7 +473,8 @@ def page_dashboard():
             return (d.get('credit_alliance', pd.Series([0])).sum() +
                     d.get('credit_lehae', pd.Series([0])).sum() +
                     d.get('credit_worldvision', pd.Series([0])).sum() +
-                    d.get('credit_waleslink', pd.Series([0])).sum())
+                    d.get('credit_waleslink', pd.Series([0])).sum() +
+                    d.get('credit_lnlvip', pd.Series([0])).sum())
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("TODAY CASH", money(today_df['cash_collected'].sum()))
@@ -488,9 +493,11 @@ def page_dashboard():
                 'credit_lehae': 'sum',
                 'credit_worldvision': 'sum',
                 'credit_waleslink': 'sum',
+                'credit_lnlvip': 'sum',
             }).reset_index()
             by_veh['Total Credits'] = (by_veh['credit_alliance'] + by_veh['credit_lehae'] +
-                                       by_veh['credit_worldvision'] + by_veh['credit_waleslink'])
+                                       by_veh['credit_worldvision'] + by_veh['credit_waleslink'] +
+                                       by_veh['credit_lnlvip'])
             by_veh['Net'] = by_veh['cash_collected'] + by_veh['Total Credits'] - by_veh['fuel_cost'] - by_veh['other_expenses']
             by_veh = by_veh[['vehicle_name', 'cash_collected', 'Total Credits', 'fuel_cost', 'other_expenses', 'trips', 'Net']]
             by_veh.columns = ['VEHICLE', 'CASH IN', 'CREDITS', 'FUEL COST', 'OTHER EXP', 'TRIPS', 'NET']
@@ -529,13 +536,15 @@ def page_daily_entry():
             fuel_cost = st.number_input("Fuel cost (M)", min_value=0.0, step=10.0, format="%.2f")
 
         st.markdown("**Monthly Credits / Contract Payments**")
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             credit_alliance = st.number_input("Alliance (M)", min_value=0.0, step=50.0, format="%.2f")
             credit_lehae = st.number_input("Lehae (M)", min_value=0.0, step=50.0, format="%.2f")
         with c2:
             credit_worldvision = st.number_input("World Vision (M)", min_value=0.0, step=50.0, format="%.2f")
             credit_waleslink = st.number_input("Waleslink (M)", min_value=0.0, step=50.0, format="%.2f")
+        with c3:
+            credit_lnlvip = st.number_input("LNLVIP (M)", min_value=0.0, step=50.0, format="%.2f")
 
         other_exp = st.number_input("Other expenses (M)", min_value=0.0, step=10.0, format="%.2f")
         exp_notes = st.text_input("Expense notes (repairs, etc.)")
@@ -548,13 +557,13 @@ def page_daily_entry():
                 INSERT INTO daily_records 
                 (record_date, vehicle_id, vehicle_name, plate, cash_collected, fuel_cost,
                  trips, other_expenses, expense_notes,
-                 credit_alliance, credit_lehae, credit_worldvision, credit_waleslink,
+                 credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
                  driver_name, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record_date.isoformat(), vehicle['id'], vehicle['name'], vehicle['plate'],
                 cash, fuel_cost, trips, other_exp, exp_notes,
-                credit_alliance, credit_lehae, credit_worldvision, credit_waleslink,
+                credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
                 driver, notes
             ))
             st.success(f"Saved for {vehicle['name']} on {record_date}")
@@ -566,7 +575,7 @@ def page_records():
     df = query_df("""
         SELECT id, record_date, vehicle_name, plate, cash_collected, fuel_cost,
                trips, other_expenses,
-               credit_alliance, credit_lehae, credit_worldvision, credit_waleslink,
+               credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
                driver_name, notes
         FROM daily_records ORDER BY record_date DESC, id DESC
     """)
@@ -607,6 +616,7 @@ def page_records():
             'credit_lehae': 'M {:,.0f}',
             'credit_worldvision': 'M {:,.0f}',
             'credit_waleslink': 'M {:,.0f}',
+            'credit_lnlvip': 'M {:,.0f}',
         }),
         use_container_width=True,
         hide_index=True
@@ -614,7 +624,8 @@ def page_records():
 
     # Summary of filtered
     total_credits = (filtered['credit_alliance'].sum() + filtered['credit_lehae'].sum() +
-                     filtered['credit_worldvision'].sum() + filtered['credit_waleslink'].sum())
+                     filtered['credit_worldvision'].sum() + filtered['credit_waleslink'].sum() +
+                     filtered['credit_lnlvip'].sum())
     st.markdown(
         f"**TOTALS (FILTERED):** CASH **{money(filtered['cash_collected'].sum())}** | "
         f"CREDITS **{money(total_credits)}** | "
@@ -662,7 +673,7 @@ def page_vehicles():
                SUM(fuel_cost) as total_fuel,
                SUM(other_expenses) as total_other,
                SUM(trips) as total_trips,
-               SUM(credit_alliance + credit_lehae + credit_worldvision + credit_waleslink) as total_credits
+               SUM(credit_alliance + credit_lehae + credit_worldvision + credit_waleslink + credit_lnlvip) as total_credits
         FROM daily_records GROUP BY vehicle_name, plate
     """)
 
@@ -913,19 +924,23 @@ def page_export():
 def main():
     init_db()
 
-    # Professional Sidebar Header
-    st.sidebar.markdown("""
-    <div style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); 
-                padding: 16px 12px; border-radius: 10px; margin-bottom: 12px;
-                border-left: 5px solid #f5a623;">
-        <h2 style="color: #f5a623; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px;">
-            MAXY TAXI
-        </h2>
-        <p style="color: #ffffff; margin: 4px 0 0 0; font-size: 11px; letter-spacing: 1.5px;">
-            SAFE • QUICK • RELIABLE
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Professional Sidebar Header with Logo
+    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
+    if os.path.exists(logo_path):
+        st.sidebar.image(logo_path, use_container_width=True)
+    else:
+        st.sidebar.markdown("""
+        <div style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); 
+                    padding: 16px 12px; border-radius: 10px; margin-bottom: 12px;
+                    border-left: 5px solid #f5a623;">
+            <h2 style="color: #f5a623; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px;">
+                MAXY TAXI
+            </h2>
+            <p style="color: #ffffff; margin: 4px 0 0 0; font-size: 11px; letter-spacing: 1.5px;">
+                SAFE • QUICK • RELIABLE
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
     pages = {
         "DASHBOARD": page_dashboard,
