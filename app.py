@@ -913,26 +913,48 @@ def page_export():
 def main():
     init_db()
 
-    st.sidebar.title("🚖 Maxy Taxi")
-    st.sidebar.caption("Transport Records")
-    st.sidebar.markdown("---")
+    # Professional Sidebar Header
+    st.sidebar.markdown("""
+    <div style="background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); 
+                padding: 16px 12px; border-radius: 10px; margin-bottom: 12px;
+                border-left: 5px solid #f5a623;">
+        <h2 style="color: #f5a623; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px;">
+            MAXY TAXI
+        </h2>
+        <p style="color: #ffffff; margin: 4px 0 0 0; font-size: 11px; letter-spacing: 1.5px;">
+            SAFE • QUICK • RELIABLE
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     pages = {
-        "Dashboard": page_dashboard,
-        "Daily Entry": page_daily_entry,
-        "Records": page_records,
-        "Fleet": page_vehicles,
-        "Clients": page_clients,
-        "Quotations": page_quotations,
-        "Invoices": page_invoices,
-        "Backup / Export": page_export,
+        "DASHBOARD": page_dashboard,
+        "DAILY ENTRY": page_daily_entry,
+        "RECORDS": page_records,
+        "FLEET": page_vehicles,
+        "CLIENTS": page_clients,
+        "QUOTATIONS": page_quotations,
+        "INVOICES": page_invoices,
+        "BACKUP / EXPORT": page_export,
     }
 
-    choice = st.sidebar.radio("Menu", list(pages.keys()), label_visibility="collapsed")
+    choice = st.sidebar.radio("MENU", list(pages.keys()), label_visibility="collapsed")
+
     st.sidebar.markdown("---")
-    st.sidebar.caption("SAFE • QUICK • RELIABLE")
-    st.sidebar.caption("Puma House 12 United Nations Rd")
-    st.sidebar.caption("5× Honda Fit + Alphard")
+
+    # Contact details matching letterhead
+    st.sidebar.markdown("""
+    <div style="font-size: 12px; line-height: 1.6; color: #ccc;">
+        <p style="margin: 0 0 6px 0;"><b style="color: #f5a623;">CONTACT</b></p>
+        <p style="margin: 0;">📞 +266 27335933 / 68335933</p>
+        <p style="margin: 0;">💬 WhatsApp: +266 56432571</p>
+        <p style="margin: 0;">✉️ maxytaxicab@gmail.com</p>
+        <p style="margin: 8px 0 0 0;">📍 Puma House 12<br>United Nations Road, Maseru</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.sidebar.markdown("---")
+    st.sidebar.caption("5× HONDA FIT + ALPHARD")
 
     pages[choice]()
 
