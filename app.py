@@ -20,7 +20,7 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 # ---------------------- CONFIG ----------------------
 st.set_page_config(
     page_title="Maxy Taxi Records",
-    page_icon="🚕",
+    page_icon="🚖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -37,7 +37,7 @@ def check_password():
     if st.session_state.authenticated:
         return True
 
-    st.title("🚕 Maxy Taxi")
+    st.title("🚖 Maxy Taxi")
     st.caption("SAFE • QUICK • RELIABLE")
     st.subheader("Business Records Login")
     st.write("Enter the password to continue.")
@@ -452,7 +452,7 @@ def vehicle_options():
 
 # ---------------------- PAGES ----------------------
 def page_dashboard():
-    st.header("📊 Dashboard")
+    st.header("DASHBOARD")
     today = date.today()
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
@@ -472,12 +472,12 @@ def page_dashboard():
                     d.get('credit_waleslink', pd.Series([0])).sum())
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Today Cash", money(today_df['cash_collected'].sum()))
-        c2.metric("This Week Cash", money(week_df['cash_collected'].sum()))
-        c3.metric("This Month Cash", money(month_df['cash_collected'].sum()))
-        c4.metric("Month Credits", money(total_credits(month_df)))
+        c1.metric("TODAY CASH", money(today_df['cash_collected'].sum()))
+        c2.metric("THIS WEEK CASH", money(week_df['cash_collected'].sum()))
+        c3.metric("THIS MONTH CASH", money(month_df['cash_collected'].sum()))
+        c4.metric("MONTH CREDITS", money(total_credits(month_df)))
 
-        st.subheader("This Month by Vehicle")
+        st.subheader("THIS MONTH BY VEHICLE")
         if not month_df.empty:
             by_veh = month_df.groupby('vehicle_name').agg({
                 'cash_collected': 'sum',
@@ -493,27 +493,27 @@ def page_dashboard():
                                        by_veh['credit_worldvision'] + by_veh['credit_waleslink'])
             by_veh['Net'] = by_veh['cash_collected'] + by_veh['Total Credits'] - by_veh['fuel_cost'] - by_veh['other_expenses']
             by_veh = by_veh[['vehicle_name', 'cash_collected', 'Total Credits', 'fuel_cost', 'other_expenses', 'trips', 'Net']]
-            by_veh.columns = ['Vehicle', 'Cash In', 'Credits', 'Fuel Cost', 'Other Exp', 'Trips', 'Net']
+            by_veh.columns = ['VEHICLE', 'CASH IN', 'CREDITS', 'FUEL COST', 'OTHER EXP', 'TRIPS', 'NET']
             st.dataframe(by_veh.style.format({
-                'Cash In': 'M {:,.0f}', 'Credits': 'M {:,.0f}',
-                'Fuel Cost': 'M {:,.0f}', 'Other Exp': 'M {:,.0f}',
-                'Net': 'M {:,.0f}'
+                'CASH IN': 'M {:,.0f}', 'CREDITS': 'M {:,.0f}',
+                'FUEL COST': 'M {:,.0f}', 'OTHER EXP': 'M {:,.0f}',
+                'NET': 'M {:,.0f}'
             }), use_container_width=True, hide_index=True)
         else:
-            st.info("No records this month yet.")
+            st.info("NO RECORDS THIS MONTH YET.")
     else:
-        st.info("No daily records yet. Go to **Daily Entry** to start logging.")
+        st.info("NO DAILY RECORDS YET. GO TO DAILY ENTRY TO START LOGGING.")
 
     # Recent invoices
-    st.subheader("Recent Invoices")
+    st.subheader("RECENT INVOICES")
     inv_df = query_df("SELECT invoice_number, client_name, invoice_date, amount, amount_paid, status FROM invoices ORDER BY id DESC LIMIT 5")
     if not inv_df.empty:
         st.dataframe(inv_df, use_container_width=True, hide_index=True)
     else:
-        st.caption("No invoices yet.")
+        st.caption("NO INVOICES YET.")
 
 def page_daily_entry():
-    st.header("📝 Daily Record Entry")
+    st.header("DAILY RECORD ENTRY")
 
     with st.form("daily_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -561,7 +561,7 @@ def page_daily_entry():
             st.balloons()
 
 def page_records():
-    st.header("📋 All Daily Records")
+    st.header("ALL DAILY RECORDS")
 
     df = query_df("""
         SELECT id, record_date, vehicle_name, plate, cash_collected, fuel_cost,
@@ -572,21 +572,21 @@ def page_records():
     """)
 
     if df.empty:
-        st.info("No records yet.")
+        st.info("NO RECORDS YET.")
         return
 
     # Filters
     c1, c2, c3 = st.columns(3)
     with c1:
         vehicles = ["All"] + sorted(df['vehicle_name'].unique().tolist())
-        sel_veh = st.selectbox("Vehicle", vehicles)
+        sel_veh = st.selectbox("VEHICLE", vehicles)
     with c2:
         min_d = pd.to_datetime(df['record_date']).min().date()
         max_d = pd.to_datetime(df['record_date']).max().date()
-        date_range = st.date_input("Date range", value=(min_d, max_d))
+        date_range = st.date_input("DATE RANGE", value=(min_d, max_d))
     with c3:
         st.write("")  # spacer
-        if st.button("🔄 Refresh"):
+        if st.button("REFRESH"):
             st.rerun()
 
     filtered = df.copy()
@@ -616,19 +616,46 @@ def page_records():
     total_credits = (filtered['credit_alliance'].sum() + filtered['credit_lehae'].sum() +
                      filtered['credit_worldvision'].sum() + filtered['credit_waleslink'].sum())
     st.markdown(
-        f"**Totals (filtered):** Cash **{money(filtered['cash_collected'].sum())}** | "
-        f"Credits **{money(total_credits)}** | "
-        f"Fuel **{money(filtered['fuel_cost'].sum())}** | "
-        f"Other Exp **{money(filtered['other_expenses'].sum())}** | "
-        f"Trips **{int(filtered['trips'].sum())}**"
+        f"**TOTALS (FILTERED):** CASH **{money(filtered['cash_collected'].sum())}** | "
+        f"CREDITS **{money(total_credits)}** | "
+        f"FUEL **{money(filtered['fuel_cost'].sum())}** | "
+        f"OTHER EXP **{money(filtered['other_expenses'].sum())}** | "
+        f"TRIPS **{int(filtered['trips'].sum())}**"
     )
 
+    # ===== DELETE RECORD =====
+    st.markdown("---")
+    st.subheader("DELETE A RECORD")
+    st.caption("Select a record below if you made a mistake and want to remove it.")
+
+    if not filtered.empty:
+        # Create readable labels for selection
+        options = []
+        id_map = {}
+        for _, row in filtered.iterrows():
+            label = f"ID {row['id']} | {row['record_date']} | {row['vehicle_name']} | Cash: M{row['cash_collected']:,.0f} | Fuel: M{row['fuel_cost']:,.0f}"
+            options.append(label)
+            id_map[label] = row['id']
+
+        selected_label = st.selectbox("SELECT RECORD TO DELETE", options)
+        selected_id = id_map[selected_label]
+
+        col_del1, col_del2 = st.columns([1, 3])
+        with col_del1:
+            if st.button("DELETE RECORD", type="primary"):
+                execute("DELETE FROM daily_records WHERE id = ?", (selected_id,))
+                st.success(f"Record ID {selected_id} has been deleted.")
+                st.rerun()
+        with col_del2:
+            st.warning("This cannot be undone. Make sure you selected the correct record.")
+
     # Export
+    st.markdown("---")
     csv = filtered.to_csv(index=False).encode('utf-8')
-    st.download_button("⬇️ Download CSV", csv, "maxy_taxi_records.csv", "text/csv")
+    st.download_button("DOWNLOAD CSV", csv, "maxy_taxi_records.csv", "text/csv")
 
 def page_vehicles():
-    st.header("🚗 Fleet")
+    st.header("FLEET")
     df = query_df("""
         SELECT vehicle_name, plate,
                SUM(cash_collected) as total_cash,
@@ -655,7 +682,7 @@ def page_vehicles():
                 st.caption("No records yet for this vehicle.")
 
 def page_clients():
-    st.header("👥 Clients")
+    st.header("CLIENTS")
 
     with st.expander("➕ Add New Client", expanded=False):
         with st.form("client_form"):
@@ -684,7 +711,7 @@ def page_clients():
         st.dataframe(clients[['id', 'name', 'contact_person', 'phone', 'email', 'tin']], use_container_width=True, hide_index=True)
 
 def page_quotations():
-    st.header("📄 Quotations")
+    st.header("QUOTATIONS")
 
     # Create new
     with st.expander("➕ Create New Quotation", expanded=True):
@@ -736,7 +763,7 @@ def page_quotations():
                     st.rerun()
 
     # List
-    st.subheader("All Quotations")
+    st.subheader("ALL QUOTATIONS")
     qdf = query_df("SELECT id, quote_number, client_name, quote_date, valid_until, amount, status FROM quotations ORDER BY id DESC")
     if qdf.empty:
         st.info("No quotations yet.")
@@ -763,7 +790,7 @@ def page_quotations():
             )
 
 def page_invoices():
-    st.header("🧾 Invoices")
+    st.header("INVOICES")
 
     with st.expander("➕ Create New Invoice", expanded=True):
         clients = query_df("SELECT id, name FROM clients ORDER BY name")
@@ -820,7 +847,7 @@ def page_invoices():
                     st.success(f"Invoice {inv_number} created!")
                     st.rerun()
 
-    st.subheader("All Invoices")
+    st.subheader("ALL INVOICES")
     idf = query_df("""
         SELECT id, invoice_number, client_name, invoice_date, due_date, amount, amount_paid, status
         FROM invoices ORDER BY id DESC
@@ -862,7 +889,7 @@ def page_invoices():
                     st.rerun()
 
 def page_export():
-    st.header("📤 Backup & Export")
+    st.header("BACKUP & EXPORT")
     st.write("Download your full data regularly. On Streamlit Community Cloud the database resets if the app sleeps for long periods, so keep backups.")
 
     # Daily records
@@ -886,7 +913,7 @@ def page_export():
 def main():
     init_db()
 
-    st.sidebar.title("🚕 Maxy Taxi")
+    st.sidebar.title("🚖 Maxy Taxi")
     st.sidebar.caption("Transport Records")
     st.sidebar.markdown("---")
 
