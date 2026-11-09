@@ -25,34 +25,164 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Professional styling
+# Ultra professional dark theme matching Maxy Taxi brand (black + gold yellow)
 st.markdown("""
 <style>
-    /* Main area */
-    .stApp { background-color: #0f0f0f; }
-    h1, h2, h3 { color: #f5a623 !important; letter-spacing: 0.3px; }
-    /* Metrics */
-    [data-testid="stMetricValue"] { color: #ffffff !important; font-weight: 700; }
-    [data-testid="stMetricLabel"] { color: #cccccc !important; }
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #141414 0%, #1a1a1a 100%);
-        border-right: 1px solid #333;
+    /* ===== GLOBAL ===== */
+    .stApp {
+        background: linear-gradient(160deg, #0a0a0a 0%, #121212 40%, #0d0d0d 100%);
+        color: #e8e8e8;
     }
-    /* Buttons */
-    .stButton > button[kind="primary"] {
-        background-color: #f5a623 !important;
-        color: #111 !important;
-        border: none !important;
+    .main .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+        max-width: 1200px;
+    }
+
+    /* Headings */
+    h1, h2, h3, h4 {
+        color: #f5a623 !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.4px;
+    }
+    p, label, span, .stMarkdown { color: #d0d0d0; }
+
+    /* ===== SIDEBAR ===== */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0c0c0c 0%, #161616 100%) !important;
+        border-right: 2px solid #f5a62333;
+    }
+    section[data-testid="stSidebar"] .stRadio label {
+        color: #e0e0e0 !important;
+        font-weight: 500;
+    }
+    section[data-testid="stSidebar"] .stRadio label:hover {
+        color: #f5a623 !important;
+    }
+
+    /* ===== METRICS (cards) ===== */
+    [data-testid="stMetric"] {
+        background: linear-gradient(145deg, #1a1a1a, #141414);
+        border: 1px solid #2a2a2a;
+        border-left: 4px solid #f5a623;
+        border-radius: 10px;
+        padding: 12px 16px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    [data-testid="stMetricValue"] {
+        color: #ffffff !important;
+        font-weight: 800 !important;
+        font-size: 1.5rem !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #f5a623 !important;
         font-weight: 600 !important;
+        text-transform: uppercase;
+        font-size: 0.75rem !important;
+        letter-spacing: 0.8px;
+    }
+
+    /* ===== BUTTONS ===== */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #f5a623, #e09400) !important;
+        color: #0a0a0a !important;
+        border: none !important;
+        font-weight: 700 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 8px rgba(245,166,35,0.35);
+        transition: all 0.2s ease;
     }
     .stButton > button[kind="primary"]:hover {
-        background-color: #e09500 !important;
+        background: linear-gradient(135deg, #ffb83d, #f5a623) !important;
+        box-shadow: 0 4px 14px rgba(245,166,35,0.5);
+        transform: translateY(-1px);
     }
-    /* Dataframes */
-    .stDataFrame { border: 1px solid #333; border-radius: 8px; }
-    /* Dividers */
-    hr { border-color: #333 !important; }
+    .stButton > button[kind="secondary"],
+    .stButton > button:not([kind="primary"]) {
+        background: #1f1f1f !important;
+        color: #f5a623 !important;
+        border: 1px solid #f5a62355 !important;
+        border-radius: 8px !important;
+    }
+
+    /* ===== INPUTS ===== */
+    .stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] > div,
+    .stDateInput input, .stTextArea textarea {
+        background-color: #1a1a1a !important;
+        color: #f0f0f0 !important;
+        border: 1px solid #333 !important;
+        border-radius: 8px !important;
+    }
+    .stTextInput input:focus, .stNumberInput input:focus, .stTextArea textarea:focus {
+        border-color: #f5a623 !important;
+        box-shadow: 0 0 0 1px #f5a62355 !important;
+    }
+
+    /* ===== DATAFRAMES / TABLES ===== */
+    .stDataFrame {
+        border: 1px solid #2a2a2a !important;
+        border-radius: 10px !important;
+        overflow: hidden;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    }
+    .stDataFrame thead tr th {
+        background: #1c1c1c !important;
+        color: #f5a623 !important;
+        font-weight: 700 !important;
+    }
+    .stDataFrame tbody tr {
+        background: #141414 !important;
+        color: #e0e0e0 !important;
+    }
+    .stDataFrame tbody tr:nth-child(even) {
+        background: #1a1a1a !important;
+    }
+
+    /* ===== EXPANDERS ===== */
+    .streamlit-expanderHeader {
+        background: #1a1a1a !important;
+        border-radius: 8px !important;
+        border: 1px solid #2a2a2a !important;
+        color: #f5a623 !important;
+        font-weight: 600 !important;
+    }
+    .streamlit-expanderContent {
+        background: #141414 !important;
+        border: 1px solid #2a2a2a !important;
+        border-top: none !important;
+        border-radius: 0 0 8px 8px !important;
+    }
+
+    /* ===== TABS / RADIO ===== */
+    .stRadio > div { gap: 0.4rem; }
+
+    /* ===== ALERTS ===== */
+    .stSuccess, .stInfo, .stWarning, .stError {
+        border-radius: 8px !important;
+    }
+
+    /* ===== DIVIDERS ===== */
+    hr {
+        border: none !important;
+        border-top: 1px solid #2a2a2a !important;
+        margin: 1.2rem 0 !important;
+    }
+
+    /* ===== CAPTIONS ===== */
+    .stCaption, small { color: #888 !important; }
+
+    /* ===== DOWNLOAD BUTTONS ===== */
+    .stDownloadButton > button {
+        background: #1f1f1f !important;
+        color: #f5a623 !important;
+        border: 1px solid #f5a62366 !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+    .stDownloadButton > button:hover {
+        background: #f5a62322 !important;
+        border-color: #f5a623 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -70,15 +200,26 @@ def check_password():
     st.markdown("<br><br>", unsafe_allow_html=True)
     col_a, col_b, col_c = st.columns([1, 2, 1])
     with col_b:
-        logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
+        st.markdown("""
+        <div style="background: linear-gradient(145deg, #1a1a1a, #111);
+                    border: 1px solid #f5a62355; border-radius: 16px;
+                    padding: 28px 22px 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.55);">
+        """, unsafe_allow_html=True)
         logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
+        logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
         if os.path.exists(logo_clean):
             st.image(logo_clean, use_container_width=True)
         elif os.path.exists(logo_icon):
             st.image(logo_icon, use_container_width=True)
-        st.markdown("<p style='text-align:center; color:#aaa; font-size:12px; letter-spacing:2px; margin-top:4px;'>SAFE • QUICK • RELIABLE</p>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#888; font-size:13px; margin-top:20px;'>Business Records Login</p>", unsafe_allow_html=True)
-        password = st.text_input("Password", type="password", key="password_input", label_visibility="collapsed", placeholder="Enter password")
+        st.markdown("""
+            <p style='text-align:center; color:#f5a623; font-size:11px; letter-spacing:2.5px;
+                       margin: 10px 0 2px 0; font-weight:600;'>SAFE • QUICK • RELIABLE</p>
+            <p style='text-align:center; color:#777; font-size:13px; margin: 14px 0 4px 0;'>Business Records Login</p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        password = st.text_input("Password", type="password", key="password_input",
+                                 label_visibility="collapsed", placeholder="Enter password")
         if st.button("Login", type="primary", use_container_width=True):
             if password == APP_PASSWORD:
                 st.session_state.authenticated = True
