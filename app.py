@@ -517,72 +517,76 @@ def page_dashboard():
     else:
         st.info("No daily records yet. Go to Daily Entry to start logging.")
 
-    # ===== FINANCIAL YEAR MONTHLY SUMMARY =====
-    st.subheader("Financial Year Summary (June 2026 – May 2027)")
+    # ===== SELECT ONE MONTH =====
+    st.subheader("Monthly Summary")
+    month_options = [label for _, _, label in FY_MONTHS]
+    # Default to current month if in FY, else June 2026
+    default_idx = 0
+    for i, (y, m, label) in enumerate(FY_MONTHS):
+        if today.year == y and today.month == m:
+            default_idx = i
+            break
+    sel_month = st.selectbox("Select month", month_options, index=default_idx)
 
     if df.empty:
         st.info("No data for the financial year yet.")
     else:
-        rows = []
-        for y, m, label in FY_MONTHS:
-            mdf = df[(df['record_date'].dt.year == y) & (df['record_date'].dt.month == m)]
-            cash = mdf['cash_collected'].sum() if not mdf.empty else 0
-            credits = mdf['credits'].sum() if not mdf.empty else 0
-            fuel = mdf['fuel_cost'].sum() if not mdf.empty else 0
-            topup = mdf['fuel_topup'].sum() if not mdf.empty else 0
-            driver_comp = mdf['driver_compensation'].sum() if not mdf.empty else 0
-            other = mdf['other_expenses'].sum() if not mdf.empty else 0
-            trips = mdf['trips'].sum() if not mdf.empty else 0
-            revenue = cash + credits
-            expenses = fuel + topup + driver_comp + other
-            net = revenue - expenses
-            rows.append({
-                "Month": label,
-                "Cash": cash,
-                "Credits": credits,
-                "Total Revenue": revenue,
-                "Fuel Cost": fuel,
-                "Fuel Top-up": topup,
-                "Driver Comp": driver_comp,
-                "Other Exp": other,
-                "Total Expenses": expenses,
-                "Net": net,
-                "Trips": int(trips)
-            })
+        y, m, _ = next((yy, mm, ll) for yy, mm, ll in FY_MONTHS if ll == sel_month)
+        mdf = df[(df['record_date'].dt.year == y) & (df['record_date'].dt.month == m)]
 
-        fy_df = pd.DataFrame(rows)
+        cash = mdf['cash_collected'].sum() if not mdf.empty else 0
+        credits = mdf['credits'].sum() if not mdf.empty else 0
+        fuel = mdf['fuel_cost'].sum() if not mdf.empty else 0
+        topup = mdf['fuel_topup'].sum() if not mdf.empty else 0
+        driver_comp = mdf['driver_compensation'].sum() if not mdf.empty else 0
+        other = mdf['other_expenses'].sum() if not mdf.empty else 0
+        trips = int(mdf['trips'].sum()) if not mdf.empty else 0
+        revenue = cash + credits
+        expenses = fuel + topup + driver_comp + other
+        net = revenue - expenses
 
-        # Totals row
-        totals = {
-            "Month": "TOTAL",
-            "Cash": fy_df["Cash"].sum(),
-            "Credits": fy_df["Credits"].sum(),
-            "Total Revenue": fy_df["Total Revenue"].sum(),
-            "Fuel Cost": fy_df["Fuel Cost"].sum(),
-            "Fuel Top-up": fy_df["Fuel Top-up"].sum(),
-            "Driver Comp": fy_df["Driver Comp"].sum(),
-            "Other Exp": fy_df["Other Exp"].sum(),
-            "Total Expenses": fy_df["Total Expenses"].sum(),
-            "Net": fy_df["Net"].sum(),
-            "Trips": int(fy_df["Trips"].sum())
-        }
-        fy_df = pd.concat([fy_df, pd.DataFrame([totals])], ignore_index=True)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Cash", money(cash))
+        c2.metric("Total Credits", money(credits))
+        c3.metric("Total Revenue", money(revenue))
+        c4.metric("Net", money(net))
 
-        st.dataframe(
-            fy_df.style.format({
-                "Cash": "M {:,.0f}",
-                "Credits": "M {:,.0f}",
-                "Total Revenue": "M {:,.0f}",
-                "Fuel Cost": "M {:,.0f}",
-                "Fuel Top-up": "M {:,.0f}",
-                "Driver Comp": "M {:,.0f}",
-                "Other Exp": "M {:,.0f}",
-                "Total Expenses": "M {:,.0f}",
-                "Net": "M {:,.0f}",
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
+        c5, c6, c7, c8 = st.columns(4)
+        c5.metric("Fuel Cost", money(fuel))
+        c6.metric("Fuel Top-up", money(topup))
+        c7.metric("Driver Comp", money(driver_comp))
+        c8.metric("Other Expenses", money(other))
+
+        st.metric("Trips", trips)
+
+        # Per vehicle for selected month
+        if not mdf.empty:
+            st.markdown(f"**{sel_month} by Vehicle**")
+            by_veh = mdf.groupby('vehicle_name').agg({
+                'cash_collected': 'sum',
+                'credits': 'sum',
+                'fuel_cost': 'sum',
+                'fuel_topup': 'sum',
+                'driver_compensation': 'sum',
+                'other_expenses': 'sum',
+                'trips': 'sum',
+            }).reset_index()
+            by_veh['Net'] = (by_veh['cash_collected'] + by_veh['credits']
+                             - by_veh['fuel_cost'] - by_veh['fuel_topup']
+                             - by_veh['driver_compensation'] - by_veh['other_expenses'])
+            by_veh.columns = ['Vehicle', 'Cash', 'Credits', 'Fuel', 'Top-up', 'Driver Comp', 'Other', 'Trips', 'Net']
+            st.dataframe(
+                by_veh.style.format({
+                    'Cash': 'M {:,.0f}', 'Credits': 'M {:,.0f}',
+                    'Fuel': 'M {:,.0f}', 'Top-up': 'M {:,.0f}',
+                    'Driver Comp': 'M {:,.0f}', 'Other': 'M {:,.0f}',
+                    'Net': 'M {:,.0f}',
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info(f"No records for {sel_month} yet.")
 
     # Recent invoices
     st.subheader("Recent Invoices")
@@ -760,6 +764,9 @@ def page_vehicles():
     st.caption("Financial Year 2026 – 2027 (June to May)")
 
     df = prepare_records_df()
+    month_options = [label for _, _, label in FY_MONTHS]
+    sel_month = st.selectbox("Select month", month_options, key="fleet_month")
+    y, m, _ = next((yy, mm, ll) for yy, mm, ll in FY_MONTHS if ll == sel_month)
 
     for v in VEHICLES:
         with st.expander(f"{v['name']} — {v['plate']}", expanded=False):
@@ -768,100 +775,59 @@ def page_vehicles():
                 st.caption("No records yet for this vehicle.")
                 continue
 
-            rows = []
-            for y, m, label in FY_MONTHS:
-                mdf = vdf[(vdf['record_date'].dt.year == y) & (vdf['record_date'].dt.month == m)]
-                cash = mdf['cash_collected'].sum() if not mdf.empty else 0
-                credits = mdf['credits'].sum() if not mdf.empty else 0
-                fuel = mdf['fuel_cost'].sum() if not mdf.empty else 0
-                topup = mdf['fuel_topup'].sum() if not mdf.empty else 0
-                dcomp = mdf['driver_compensation'].sum() if not mdf.empty else 0
-                other = mdf['other_expenses'].sum() if not mdf.empty else 0
-                trips = int(mdf['trips'].sum()) if not mdf.empty else 0
-                net = cash + credits - fuel - topup - dcomp - other
-                rows.append({
-                    "Month": label,
-                    "Cash": cash,
-                    "Credits": credits,
-                    "Fuel": fuel,
-                    "Top-up": topup,
-                    "Driver Comp": dcomp,
-                    "Other": other,
-                    "Net": net,
-                    "Trips": trips
-                })
+            mdf = vdf[(vdf['record_date'].dt.year == y) & (vdf['record_date'].dt.month == m)]
+            if mdf.empty:
+                st.caption(f"No records for {sel_month}.")
+                continue
 
-            v_fy = pd.DataFrame(rows)
-            # Add total
-            totals = {
-                "Month": "TOTAL",
-                "Cash": v_fy["Cash"].sum(),
-                "Credits": v_fy["Credits"].sum(),
-                "Fuel": v_fy["Fuel"].sum(),
-                "Top-up": v_fy["Top-up"].sum(),
-                "Driver Comp": v_fy["Driver Comp"].sum(),
-                "Other": v_fy["Other"].sum(),
-                "Net": v_fy["Net"].sum(),
-                "Trips": int(v_fy["Trips"].sum())
-            }
-            v_fy = pd.concat([v_fy, pd.DataFrame([totals])], ignore_index=True)
+            cash = mdf['cash_collected'].sum()
+            credits = mdf['credits'].sum()
+            fuel = mdf['fuel_cost'].sum()
+            topup = mdf['fuel_topup'].sum()
+            dcomp = mdf['driver_compensation'].sum()
+            other = mdf['other_expenses'].sum()
+            trips = int(mdf['trips'].sum())
+            net = cash + credits - fuel - topup - dcomp - other
 
-            st.dataframe(
-                v_fy.style.format({
-                    "Cash": "M {:,.0f}",
-                    "Credits": "M {:,.0f}",
-                    "Fuel": "M {:,.0f}",
-                    "Top-up": "M {:,.0f}",
-                    "Driver Comp": "M {:,.0f}",
-                    "Other": "M {:,.0f}",
-                    "Net": "M {:,.0f}",
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Cash", money(cash))
+            c2.metric("Credits", money(credits))
+            c3.metric("Net", money(net))
+            c4, c5, c6 = st.columns(3)
+            c4.metric("Fuel", money(fuel))
+            c5.metric("Top-up", money(topup))
+            c6.metric("Driver Comp", money(dcomp))
+            st.caption(f"Other expenses: {money(other)} | Trips: {trips}")
 
 def page_clients():
     st.header("Clients")
     st.caption("Financial Year 2026 – 2027 (June to May)")
 
-    # Monthly Credits Summary for contract clients
-    st.subheader("Monthly Credits Summary")
+    # Credits for selected month
+    st.subheader("Credits Summary")
     df = prepare_records_df()
+    month_options = [label for _, _, label in FY_MONTHS]
+    sel_month = st.selectbox("Select month", month_options, key="clients_month")
+
     if df.empty:
         st.info("No credit data yet.")
     else:
-        rows = []
-        for y, m, label in FY_MONTHS:
-            mdf = df[(df['record_date'].dt.year == y) & (df['record_date'].dt.month == m)]
-            rows.append({
-                "Month": label,
-                "Alliance": mdf['credit_alliance'].sum() if not mdf.empty else 0,
-                "Lehae": mdf['credit_lehae'].sum() if not mdf.empty else 0,
-                "World Vision": mdf['credit_worldvision'].sum() if not mdf.empty else 0,
-                "Waleslink": mdf['credit_waleslink'].sum() if not mdf.empty else 0,
-                "LNLVIP": mdf['credit_lnlvip'].sum() if not mdf.empty else 0,
-            })
-        cred_df = pd.DataFrame(rows)
-        totals = {
-            "Month": "TOTAL",
-            "Alliance": cred_df["Alliance"].sum(),
-            "Lehae": cred_df["Lehae"].sum(),
-            "World Vision": cred_df["World Vision"].sum(),
-            "Waleslink": cred_df["Waleslink"].sum(),
-            "LNLVIP": cred_df["LNLVIP"].sum(),
-        }
-        cred_df = pd.concat([cred_df, pd.DataFrame([totals])], ignore_index=True)
-        st.dataframe(
-            cred_df.style.format({
-                "Alliance": "M {:,.0f}",
-                "Lehae": "M {:,.0f}",
-                "World Vision": "M {:,.0f}",
-                "Waleslink": "M {:,.0f}",
-                "LNLVIP": "M {:,.0f}",
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
+        y, m, _ = next((yy, mm, ll) for yy, mm, ll in FY_MONTHS if ll == sel_month)
+        mdf = df[(df['record_date'].dt.year == y) & (df['record_date'].dt.month == m)]
+        alliance = mdf['credit_alliance'].sum() if not mdf.empty else 0
+        lehae = mdf['credit_lehae'].sum() if not mdf.empty else 0
+        wv = mdf['credit_worldvision'].sum() if not mdf.empty else 0
+        wales = mdf['credit_waleslink'].sum() if not mdf.empty else 0
+        lnl = mdf['credit_lnlvip'].sum() if not mdf.empty else 0
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Alliance", money(alliance))
+        c2.metric("Lehae", money(lehae))
+        c3.metric("World Vision", money(wv))
+        c4, c5, c6 = st.columns(3)
+        c4.metric("Waleslink", money(wales))
+        c5.metric("LNLVIP", money(lnl))
+        c6.metric("Total Credits", money(alliance + lehae + wv + wales + lnl))
 
     st.markdown("---")
     st.subheader("Client Directory")
@@ -1085,21 +1051,24 @@ def page_export():
 def main():
     init_db()
 
-    # Professional Sidebar
+    # Professional Sidebar - logo icon only + yellow borders
     st.sidebar.markdown("""
-    <div style="border: 2px solid #f5a623; border-radius: 12px; padding: 12px; margin-bottom: 15px; background: #1a1a1a;">
+    <div style="border: 2px solid #f5a623; border-radius: 12px; padding: 14px; margin-bottom: 12px; background: #111;">
     """, unsafe_allow_html=True)
 
-    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
-    if os.path.exists(logo_path):
-        st.sidebar.image(logo_path, use_container_width=True)
+    logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
+    logo_full = os.path.join(os.path.dirname(__file__), "logo.jpg")
+    if os.path.exists(logo_icon):
+        st.sidebar.image(logo_icon, use_container_width=True)
+    elif os.path.exists(logo_full):
+        st.sidebar.image(logo_full, use_container_width=True)
     else:
-        st.sidebar.markdown("<h3 style='color:#f5a623; text-align:center;'>MAXY TAXI</h3>", unsafe_allow_html=True)
+        st.sidebar.markdown("<h3 style='color:#f5a623; text-align:center; margin:0;'>MAXY TAXI</h3>", unsafe_allow_html=True)
 
     st.sidebar.markdown("""
-    <p style="text-align:center; color:#f5a623; font-size:11px; letter-spacing:1px; margin:4px 0 8px 0;">
-    SAFE • QUICK • RELIABLE
-    </p>
+        <p style="text-align:center; color:#f5a623; font-size:11px; letter-spacing:1.5px; margin:6px 0 0 0; font-weight:600;">
+        SAFE • QUICK • RELIABLE
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1117,7 +1086,7 @@ def main():
     choice = st.sidebar.radio("Menu", list(pages.keys()), label_visibility="collapsed")
 
     st.sidebar.markdown("""
-    <div style="border: 2px solid #f5a623; border-radius: 10px; padding: 12px; margin-top: 15px; background: #1a1a1a;">
+    <div style="border: 2px solid #f5a623; border-radius: 10px; padding: 12px; margin-top: 14px; background: #111;">
         <p style="color:#f5a623; font-weight:bold; margin:0 0 8px 0; font-size:13px;">Contact</p>
         <p style="color:#ddd; font-size:12px; margin:3px 0;">📞 +266 27335933 / 68335933</p>
         <p style="color:#ddd; font-size:12px; margin:3px 0;">💬 +266 56432571</p>
@@ -1126,7 +1095,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    st.sidebar.markdown("<br><p style='text-align:center; color:#888; font-size:11px;'>5× Honda Fit + Alphard</p>", unsafe_allow_html=True)
+    st.sidebar.markdown("<p style='text-align:center; color:#666; font-size:11px; margin-top:12px;'>5× Honda Fit + Alphard</p>", unsafe_allow_html=True)
 
     pages[choice]()
 
