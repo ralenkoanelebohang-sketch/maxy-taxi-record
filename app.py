@@ -19,14 +19,44 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
 # ---------------------- CONFIG ----------------------
 st.set_page_config(
-    page_title="Maxy Taxi Records",
+    page_title="MAXY TAXI | Business Records",
     page_icon="🚖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# Professional styling
+st.markdown("""
+<style>
+    /* Main area */
+    .stApp { background-color: #0f0f0f; }
+    h1, h2, h3 { color: #f5a623 !important; letter-spacing: 0.3px; }
+    /* Metrics */
+    [data-testid="stMetricValue"] { color: #ffffff !important; font-weight: 700; }
+    [data-testid="stMetricLabel"] { color: #cccccc !important; }
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #141414 0%, #1a1a1a 100%);
+        border-right: 1px solid #333;
+    }
+    /* Buttons */
+    .stButton > button[kind="primary"] {
+        background-color: #f5a623 !important;
+        color: #111 !important;
+        border: none !important;
+        font-weight: 600 !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #e09500 !important;
+    }
+    /* Dataframes */
+    .stDataFrame { border: 1px solid #333; border-radius: 8px; }
+    /* Dividers */
+    hr { border-color: #333 !important; }
+</style>
+""", unsafe_allow_html=True)
+
 # ========== PASSWORD PROTECTION ==========
-# Change this password to whatever you want
 APP_PASSWORD = "MaxyTaxi2026"
 
 def check_password():
@@ -37,14 +67,16 @@ def check_password():
     if st.session_state.authenticated:
         return True
 
-    st.title("🚖 Maxy Taxi")
-    st.caption("SAFE • QUICK • RELIABLE")
-    st.subheader("Business Records Login")
-    st.write("Enter the password to continue.")
-
-    password = st.text_input("Password", type="password", key="password_input")
-    col1, col2 = st.columns([1, 3])
-    with col1:
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_a, col_b, col_c = st.columns([1, 2, 1])
+    with col_b:
+        logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
+        if os.path.exists(logo_icon):
+            st.image(logo_icon, use_container_width=True)
+        st.markdown("<h2 style='text-align:center; color:#f5a623; margin:8px 0 4px 0;'>MAXY TAXI</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#aaa; font-size:12px; letter-spacing:2px;'>SAFE • QUICK • RELIABLE</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#888; font-size:13px; margin-top:16px;'>Business Records Login</p>", unsafe_allow_html=True)
+        password = st.text_input("Password", type="password", key="password_input", label_visibility="collapsed", placeholder="Enter password")
         if st.button("Login", type="primary", use_container_width=True):
             if password == APP_PASSWORD:
                 st.session_state.authenticated = True
@@ -1028,24 +1060,58 @@ def page_invoices():
 
 def page_export():
     st.header("Backup & Export")
-    st.write("Download your full data regularly. On Streamlit Community Cloud the database resets if the app sleeps for long periods, so keep backups.")
 
-    # Daily records
+    st.markdown("""
+    <div style="border: 1px solid #f5a623; border-radius: 10px; padding: 16px; background: #1a1508; margin-bottom: 20px;">
+        <p style="color:#f5a623; font-weight:700; margin:0 0 8px 0;">⚠ Keep your records safe</p>
+        <p style="color:#ddd; font-size:13px; margin:0; line-height:1.5;">
+        On the free plan the app database can reset if nobody opens the app for a long time.
+        <b>Download a full backup at least once a week</b> and save it to Google Drive or your phone.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.subheader("Download backups")
     df_rec = query_df("SELECT * FROM daily_records")
     if not df_rec.empty:
-        st.download_button("⬇️ Daily Records (CSV)", df_rec.to_csv(index=False).encode(), "maxy_daily_records.csv")
-        # Excel
-        buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df_rec.to_excel(writer, sheet_name="Daily Records", index=False)
-            query_df("SELECT * FROM clients").to_excel(writer, sheet_name="Clients", index=False)
-            query_df("SELECT * FROM quotations").to_excel(writer, sheet_name="Quotations", index=False)
-            query_df("SELECT * FROM invoices").to_excel(writer, sheet_name="Invoices", index=False)
-        buffer.seek(0)
-        st.download_button("⬇️ Full Backup (Excel)", buffer, "maxy_taxi_full_backup.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                "Daily Records (CSV)",
+                df_rec.to_csv(index=False).encode(),
+                "maxy_daily_records.csv",
+                use_container_width=True
+            )
+        with col2:
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_rec.to_excel(writer, sheet_name="Daily Records", index=False)
+                query_df("SELECT * FROM clients").to_excel(writer, sheet_name="Clients", index=False)
+                query_df("SELECT * FROM quotations").to_excel(writer, sheet_name="Quotations", index=False)
+                query_df("SELECT * FROM invoices").to_excel(writer, sheet_name="Invoices", index=False)
+            buffer.seek(0)
+            st.download_button(
+                "Full Backup (Excel)",
+                buffer,
+                f"maxy_taxi_backup_{date.today().isoformat()}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary"
+            )
+        st.success("Tip: After downloading, open Google Drive → Upload → keep the file in a folder called Maxy Taxi Backups.")
     else:
-        st.info("No data to export yet.")
+        st.info("No data to export yet. Start by adding Daily Entry records.")
+
+    st.markdown("---")
+    st.subheader("Make the app private")
+    st.markdown("""
+    1. Open your live app  
+    2. Click the **⋯** menu (top right) → **Settings**  
+    3. Go to **Sharing**  
+    4. Choose **Only specific people can view this app**  
+    5. Add your email and Save  
+    """)
+    st.caption("Password protection is already active. Making it private adds a second layer of security.")
 
 # ---------------------- MAIN ----------------------
 def main():
