@@ -98,9 +98,11 @@ def init_db():
             plate TEXT,
             cash_collected REAL DEFAULT 0,
             fuel_cost REAL DEFAULT 0,
+            fuel_topup REAL DEFAULT 0,
             trips INTEGER DEFAULT 0,
             other_expenses REAL DEFAULT 0,
             expense_notes TEXT,
+            driver_compensation REAL DEFAULT 40.0,
             credit_alliance REAL DEFAULT 0,
             credit_lehae REAL DEFAULT 0,
             credit_worldvision REAL DEFAULT 0,
@@ -112,7 +114,8 @@ def init_db():
         )
     """)
     # Add new columns if upgrading existing DB
-    for col in ["credit_alliance", "credit_lehae", "credit_worldvision", "credit_waleslink", "credit_lnlvip"]:
+    for col in ["credit_alliance", "credit_lehae", "credit_worldvision", "credit_waleslink", "credit_lnlvip",
+                "fuel_topup", "driver_compensation"]:
         try:
             c.execute(f"ALTER TABLE daily_records ADD COLUMN {col} REAL DEFAULT 0")
         except:
@@ -530,6 +533,9 @@ def page_daily_entry():
             cash = st.number_input("Cash Collected (M)", min_value=0.0, step=50.0, format="%.2f")
             trips = st.number_input("Number of trips", min_value=0, step=1)
             fuel_cost = st.number_input("Fuel cost (M)", min_value=0.0, step=10.0, format="%.2f")
+            fuel_topup = st.number_input("Fuel Top Up from Office (M)", min_value=0.0, step=10.0, format="%.2f",
+                                         help="Money given from office when daily cash is not enough to fill the car")
+            driver_comp = st.number_input("Drivers Compensation (M)", min_value=0.0, value=40.0, step=5.0, format="%.2f")
 
         st.markdown("**Monthly Credits / Contract Payments**")
         c1, c2, c3 = st.columns(3)
@@ -546,19 +552,19 @@ def page_daily_entry():
         exp_notes = st.text_input("Expense notes (repairs, etc.)")
         notes = st.text_area("General notes", height=80)
 
-        submitted = st.form_submit_button("💾 Save Record", use_container_width=True, type="primary")
+        submitted = st.form_submit_button("Save Record", use_container_width=True, type="primary")
 
         if submitted:
             execute("""
                 INSERT INTO daily_records 
-                (record_date, vehicle_id, vehicle_name, plate, cash_collected, fuel_cost,
-                 trips, other_expenses, expense_notes,
+                (record_date, vehicle_id, vehicle_name, plate, cash_collected, fuel_cost, fuel_topup,
+                 trips, other_expenses, expense_notes, driver_compensation,
                  credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
                  driver_name, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record_date.isoformat(), vehicle['id'], vehicle['name'], vehicle['plate'],
-                cash, fuel_cost, trips, other_exp, exp_notes,
+                cash, fuel_cost, fuel_topup, trips, other_exp, exp_notes, driver_comp,
                 credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
                 driver, notes
             ))
@@ -721,15 +727,11 @@ def page_quotations():
     st.header("Quotations")
 
     # Create new
-    with st.expander("➕ Create New Quotation", expanded=True):
-        clients = query_df("SELECT id, name FROM clients ORDER BY name")
-        client_options = {row['name']: row['id'] for _, row in clients.iterrows()} if not clients.empty else {}
-        client_options["— Walk-in / No client —"] = None
-
+    with st.expander("Create New Quotation", expanded=True):
         with st.form("quote_form"):
             c1, c2 = st.columns(2)
             with c1:
-                client_name = st.selectbox("Client", list(client_options.keys()))
+                client_name = st.text_input("Client / Company Name *", placeholder="Type any client name")
                 quote_date = st.date_input("Quote Date", value=date.today())
             with c2:
                 valid_days = st.number_input("Valid for (days)", min_value=1, value=14)
@@ -741,10 +743,9 @@ def page_quotations():
             status = st.selectbox("Status", ["Draft", "Sent", "Accepted", "Rejected", "Expired"])
 
             if st.form_submit_button("Create Quotation", type="primary"):
-                if not description.strip():
-                    st.error("Description is required.")
+                if not description.strip() or not client_name.strip():
+                    st.error("Client name and description are required.")
                 else:
-                    # Generate quote number
                     year = date.today().year
                     last = query_df("SELECT quote_number FROM quotations WHERE quote_number LIKE ? ORDER BY id DESC LIMIT 1",
                                     (f"QT-{year}-%",))
@@ -757,14 +758,12 @@ def page_quotations():
                             num = 1
                     quote_number = f"QT-{year}-{num:04d}"
                     valid_until = (quote_date + timedelta(days=int(valid_days))).isoformat()
-                    cid = client_options[client_name]
-                    cname = client_name if cid else None
 
                     execute("""
                         INSERT INTO quotations (quote_number, client_id, client_name, quote_date, valid_until,
                                                 description, amount, status, notes)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (quote_number, cid, cname, quote_date.isoformat(), valid_until,
+                    """, (quote_number, None, client_name.strip(), quote_date.isoformat(), valid_until,
                           description, amount, status, notes))
                     st.success(f"Quotation {quote_number} created!")
                     st.rerun()
@@ -813,7 +812,7 @@ def page_invoices():
         with st.form("invoice_form"):
             c1, c2 = st.columns(2)
             with c1:
-                client_name = st.selectbox("Client", list(client_options.keys()))
+                client_name = st.text_input("Client / Company Name *", placeholder="Type any client name")
                 inv_date = st.date_input("Invoice Date", value=date.today())
                 due_days = st.number_input("Due in (days)", min_value=0, value=30)
             with c2:
@@ -826,8 +825,8 @@ def page_invoices():
             status = st.selectbox("Status", ["Unpaid", "Partial", "Paid", "Overdue", "Cancelled"])
 
             if st.form_submit_button("Create Invoice", type="primary"):
-                if not description.strip():
-                    st.error("Description is required.")
+                if not description.strip() or not client_name.strip():
+                    st.error("Client name and description are required.")
                 else:
                     year = date.today().year
                     last = query_df("SELECT invoice_number FROM invoices WHERE invoice_number LIKE ? ORDER BY id DESC LIMIT 1",
@@ -841,15 +840,13 @@ def page_invoices():
                             num = 1
                     inv_number = f"INV-{year}-{num:04d}"
                     due_date = (inv_date + timedelta(days=int(due_days))).isoformat()
-                    cid = client_options[client_name]
-                    cname = client_name if cid else None
                     qid = quote_options[related_quote]
 
                     execute("""
                         INSERT INTO invoices (invoice_number, client_id, client_name, invoice_date, due_date,
                                               description, amount, amount_paid, status, related_quote_id, notes)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (inv_number, cid, cname, inv_date.isoformat(), due_date,
+                    """, (inv_number, None, client_name.strip(), inv_date.isoformat(), due_date,
                           description, amount, amount_paid, status, qid, notes))
                     st.success(f"Invoice {inv_number} created!")
                     st.rerun()
@@ -920,13 +917,23 @@ def page_export():
 def main():
     init_db()
 
-    # Professional Sidebar Header with Logo
+    # Professional Sidebar
+    st.sidebar.markdown("""
+    <div style="border: 2px solid #f5a623; border-radius: 12px; padding: 12px; margin-bottom: 15px; background: #1a1a1a;">
+    """, unsafe_allow_html=True)
+
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(logo_path):
         st.sidebar.image(logo_path, use_container_width=True)
     else:
-        st.sidebar.markdown("### MAXY TAXI")
-        st.sidebar.caption("SAFE • QUICK • RELIABLE")
+        st.sidebar.markdown("<h3 style='color:#f5a623; text-align:center;'>MAXY TAXI</h3>", unsafe_allow_html=True)
+
+    st.sidebar.markdown("""
+    <p style="text-align:center; color:#f5a623; font-size:11px; letter-spacing:1px; margin:4px 0 8px 0;">
+    SAFE • QUICK • RELIABLE
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     pages = {
         "Dashboard": page_dashboard,
@@ -941,17 +948,17 @@ def main():
 
     choice = st.sidebar.radio("Menu", list(pages.keys()), label_visibility="collapsed")
 
-    st.sidebar.markdown("---")
+    st.sidebar.markdown("""
+    <div style="border: 2px solid #f5a623; border-radius: 10px; padding: 12px; margin-top: 15px; background: #1a1a1a;">
+        <p style="color:#f5a623; font-weight:bold; margin:0 0 8px 0; font-size:13px;">Contact</p>
+        <p style="color:#ddd; font-size:12px; margin:3px 0;">📞 +266 27335933 / 68335933</p>
+        <p style="color:#ddd; font-size:12px; margin:3px 0;">💬 +266 56432571</p>
+        <p style="color:#ddd; font-size:12px; margin:3px 0;">✉️ maxytaxicab@gmail.com</p>
+        <p style="color:#ddd; font-size:12px; margin:8px 0 0 0;">📍 Puma House 12<br>United Nations Road, Maseru</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Contact details
-    st.sidebar.markdown("**Contact**")
-    st.sidebar.caption("📞 +266 27335933 / 68335933")
-    st.sidebar.caption("💬 WhatsApp: +266 56432571")
-    st.sidebar.caption("✉️ maxytaxicab@gmail.com")
-    st.sidebar.caption("📍 Puma House 12, United Nations Road, Maseru")
-
-    st.sidebar.markdown("---")
-    st.sidebar.caption("5× Honda Fit + Alphard")
+    st.sidebar.markdown("<br><p style='text-align:center; color:#888; font-size:11px;'>5× Honda Fit + Alphard</p>", unsafe_allow_html=True)
 
     pages[choice]()
 
