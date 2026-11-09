@@ -453,62 +453,136 @@ def money(x):
 def vehicle_options():
     return {f"{v['name']} ({v['plate']})": v for v in VEHICLES}
 
+# Financial Year: June 2026 – May 2027
+FY_MONTHS = [
+    (2026, 6, "June 2026"),
+    (2026, 7, "July 2026"),
+    (2026, 8, "August 2026"),
+    (2026, 9, "September 2026"),
+    (2026, 10, "October 2026"),
+    (2026, 11, "November 2026"),
+    (2026, 12, "December 2026"),
+    (2027, 1, "January 2027"),
+    (2027, 2, "February 2027"),
+    (2027, 3, "March 2027"),
+    (2027, 4, "April 2027"),
+    (2027, 5, "May 2027"),
+]
+
+def get_fy_label(dt):
+    """Return FY month label for a datetime"""
+    y, m = dt.year, dt.month
+    for fy_y, fy_m, label in FY_MONTHS:
+        if y == fy_y and m == fy_m:
+            return label
+    return None
+
+def total_credits_row(row):
+    return (float(row.get('credit_alliance') or 0) +
+            float(row.get('credit_lehae') or 0) +
+            float(row.get('credit_worldvision') or 0) +
+            float(row.get('credit_waleslink') or 0) +
+            float(row.get('credit_lnlvip') or 0))
+
+def prepare_records_df():
+    df = query_df("SELECT * FROM daily_records")
+    if df.empty:
+        return df
+    df['record_date'] = pd.to_datetime(df['record_date'])
+    df['fy_month'] = df['record_date'].apply(get_fy_label)
+    df['credits'] = df.apply(total_credits_row, axis=1)
+    df['fuel_topup'] = df.get('fuel_topup', 0).fillna(0)
+    df['driver_compensation'] = df.get('driver_compensation', 0).fillna(0)
+    return df
+
 # ---------------------- PAGES ----------------------
 def page_dashboard():
     st.header("Dashboard")
+    st.caption("Financial Year 2026 – 2027 (June to May)")
+
+    df = prepare_records_df()
     today = date.today()
-    week_start = today - timedelta(days=today.weekday())
-    month_start = today.replace(day=1)
 
-    # Summary cards
-    df = query_df("SELECT * FROM daily_records")
+    # Quick today / week cards
     if not df.empty:
-        df['record_date'] = pd.to_datetime(df['record_date'])
         today_df = df[df['record_date'].dt.date == today]
+        week_start = today - timedelta(days=today.weekday())
         week_df = df[df['record_date'].dt.date >= week_start]
-        month_df = df[df['record_date'].dt.date >= month_start]
-
-        def total_credits(d):
-            return (d.get('credit_alliance', pd.Series([0])).sum() +
-                    d.get('credit_lehae', pd.Series([0])).sum() +
-                    d.get('credit_worldvision', pd.Series([0])).sum() +
-                    d.get('credit_waleslink', pd.Series([0])).sum() +
-                    d.get('credit_lnlvip', pd.Series([0])).sum())
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Today Cash", money(today_df['cash_collected'].sum()))
         c2.metric("This Week Cash", money(week_df['cash_collected'].sum()))
-        c3.metric("This Month Cash", money(month_df['cash_collected'].sum()))
-        c4.metric("Month Credits", money(total_credits(month_df)))
-
-        st.subheader("This Month by Vehicle")
-        if not month_df.empty:
-            by_veh = month_df.groupby('vehicle_name').agg({
-                'cash_collected': 'sum',
-                'fuel_cost': 'sum',
-                'other_expenses': 'sum',
-                'trips': 'sum',
-                'credit_alliance': 'sum',
-                'credit_lehae': 'sum',
-                'credit_worldvision': 'sum',
-                'credit_waleslink': 'sum',
-                'credit_lnlvip': 'sum',
-            }).reset_index()
-            by_veh['Total Credits'] = (by_veh['credit_alliance'] + by_veh['credit_lehae'] +
-                                       by_veh['credit_worldvision'] + by_veh['credit_waleslink'] +
-                                       by_veh['credit_lnlvip'])
-            by_veh['Net'] = by_veh['cash_collected'] + by_veh['Total Credits'] - by_veh['fuel_cost'] - by_veh['other_expenses']
-            by_veh = by_veh[['vehicle_name', 'cash_collected', 'Total Credits', 'fuel_cost', 'other_expenses', 'trips', 'Net']]
-            by_veh.columns = ['Vehicle', 'Cash In', 'Credits', 'Fuel Cost', 'Other Exp', 'Trips', 'Net']
-            st.dataframe(by_veh.style.format({
-                'Cash In': 'M {:,.0f}', 'Credits': 'M {:,.0f}',
-                'Fuel Cost': 'M {:,.0f}', 'Other Exp': 'M {:,.0f}',
-                'Net': 'M {:,.0f}'
-            }), use_container_width=True, hide_index=True)
-        else:
-            st.info("No records this month yet.")
+        c3.metric("Today Credits", money(today_df['credits'].sum()))
+        c4.metric("Today Fuel + Top-up", money(today_df['fuel_cost'].sum() + today_df['fuel_topup'].sum()))
     else:
         st.info("No daily records yet. Go to Daily Entry to start logging.")
+
+    # ===== FINANCIAL YEAR MONTHLY SUMMARY =====
+    st.subheader("Financial Year Summary (June 2026 – May 2027)")
+
+    if df.empty:
+        st.info("No data for the financial year yet.")
+    else:
+        rows = []
+        for y, m, label in FY_MONTHS:
+            mdf = df[(df['record_date'].dt.year == y) & (df['record_date'].dt.month == m)]
+            cash = mdf['cash_collected'].sum() if not mdf.empty else 0
+            credits = mdf['credits'].sum() if not mdf.empty else 0
+            fuel = mdf['fuel_cost'].sum() if not mdf.empty else 0
+            topup = mdf['fuel_topup'].sum() if not mdf.empty else 0
+            driver_comp = mdf['driver_compensation'].sum() if not mdf.empty else 0
+            other = mdf['other_expenses'].sum() if not mdf.empty else 0
+            trips = mdf['trips'].sum() if not mdf.empty else 0
+            revenue = cash + credits
+            expenses = fuel + topup + driver_comp + other
+            net = revenue - expenses
+            rows.append({
+                "Month": label,
+                "Cash": cash,
+                "Credits": credits,
+                "Total Revenue": revenue,
+                "Fuel Cost": fuel,
+                "Fuel Top-up": topup,
+                "Driver Comp": driver_comp,
+                "Other Exp": other,
+                "Total Expenses": expenses,
+                "Net": net,
+                "Trips": int(trips)
+            })
+
+        fy_df = pd.DataFrame(rows)
+
+        # Totals row
+        totals = {
+            "Month": "TOTAL",
+            "Cash": fy_df["Cash"].sum(),
+            "Credits": fy_df["Credits"].sum(),
+            "Total Revenue": fy_df["Total Revenue"].sum(),
+            "Fuel Cost": fy_df["Fuel Cost"].sum(),
+            "Fuel Top-up": fy_df["Fuel Top-up"].sum(),
+            "Driver Comp": fy_df["Driver Comp"].sum(),
+            "Other Exp": fy_df["Other Exp"].sum(),
+            "Total Expenses": fy_df["Total Expenses"].sum(),
+            "Net": fy_df["Net"].sum(),
+            "Trips": int(fy_df["Trips"].sum())
+        }
+        fy_df = pd.concat([fy_df, pd.DataFrame([totals])], ignore_index=True)
+
+        st.dataframe(
+            fy_df.style.format({
+                "Cash": "M {:,.0f}",
+                "Credits": "M {:,.0f}",
+                "Total Revenue": "M {:,.0f}",
+                "Fuel Cost": "M {:,.0f}",
+                "Fuel Top-up": "M {:,.0f}",
+                "Driver Comp": "M {:,.0f}",
+                "Other Exp": "M {:,.0f}",
+                "Total Expenses": "M {:,.0f}",
+                "Net": "M {:,.0f}",
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
 
     # Recent invoices
     st.subheader("Recent Invoices")
@@ -573,82 +647,97 @@ def page_daily_entry():
 
 def page_records():
     st.header("All Daily Records")
+    st.caption("Financial Year 2026 – 2027 (June to May)")
 
-    df = query_df("""
-        SELECT id, record_date, vehicle_name, plate, cash_collected, fuel_cost,
-               trips, other_expenses,
-               credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
-               driver_name, notes
-        FROM daily_records ORDER BY record_date DESC, id DESC
-    """)
-
+    df = prepare_records_df()
     if df.empty:
         st.info("No records yet.")
         return
 
-    # Filters
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        vehicles = ["All"] + sorted(df['vehicle_name'].unique().tolist())
-        sel_veh = st.selectbox("Vehicle", vehicles)
-    with c2:
-        min_d = pd.to_datetime(df['record_date']).min().date()
-        max_d = pd.to_datetime(df['record_date']).max().date()
-        date_range = st.date_input("Date range", value=(min_d, max_d))
-    with c3:
-        st.write("")  # spacer
-        if st.button("Refresh"):
-            st.rerun()
+    # Month selector
+    month_labels = ["All months"] + [label for _, _, label in FY_MONTHS]
+    sel_month = st.selectbox("Select month", month_labels)
+
+    vehicles = ["All"] + sorted(df['vehicle_name'].unique().tolist())
+    sel_veh = st.selectbox("Vehicle", vehicles)
 
     filtered = df.copy()
+    if sel_month != "All months":
+        filtered = filtered[filtered['fy_month'] == sel_month]
     if sel_veh != "All":
         filtered = filtered[filtered['vehicle_name'] == sel_veh]
-    if len(date_range) == 2:
-        filtered = filtered[
-            (pd.to_datetime(filtered['record_date']).dt.date >= date_range[0]) &
-            (pd.to_datetime(filtered['record_date']).dt.date <= date_range[1])
-        ]
 
-    st.dataframe(
-        filtered.style.format({
-            'cash_collected': 'M {:,.0f}',
-            'fuel_cost': 'M {:,.0f}',
-            'other_expenses': 'M {:,.0f}',
-            'credit_alliance': 'M {:,.0f}',
-            'credit_lehae': 'M {:,.0f}',
-            'credit_worldvision': 'M {:,.0f}',
-            'credit_waleslink': 'M {:,.0f}',
-            'credit_lnlvip': 'M {:,.0f}',
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
+    filtered = filtered.sort_values(['record_date', 'vehicle_name'])
 
-    # Summary of filtered
-    total_credits = (filtered['credit_alliance'].sum() + filtered['credit_lehae'].sum() +
-                     filtered['credit_worldvision'].sum() + filtered['credit_waleslink'].sum() +
-                     filtered['credit_lnlvip'].sum())
-    st.markdown(
-        f"**Totals (filtered):** Cash **{money(filtered['cash_collected'].sum())}** | "
-        f"Credits **{money(total_credits)}** | "
-        f"Fuel **{money(filtered['fuel_cost'].sum())}** | "
-        f"Other Exp **{money(filtered['other_expenses'].sum())}** | "
-        f"Trips **{int(filtered['trips'].sum())}**"
-    )
+    # Show by month with date separators
+    if sel_month == "All months":
+        for y, m, label in FY_MONTHS:
+            mdf = filtered[(filtered['record_date'].dt.year == y) & (filtered['record_date'].dt.month == m)]
+            if mdf.empty:
+                continue
+            st.markdown(f"### {label}")
+            show_cols = ['record_date', 'vehicle_name', 'cash_collected', 'fuel_cost', 'fuel_topup',
+                         'driver_compensation', 'credits', 'other_expenses', 'trips', 'driver_name']
+            display = mdf[[c for c in show_cols if c in mdf.columns]].copy()
+            display['record_date'] = display['record_date'].dt.strftime('%Y-%m-%d')
+            st.dataframe(
+                display.style.format({
+                    'cash_collected': 'M {:,.0f}',
+                    'fuel_cost': 'M {:,.0f}',
+                    'fuel_topup': 'M {:,.0f}',
+                    'driver_compensation': 'M {:,.0f}',
+                    'credits': 'M {:,.0f}',
+                    'other_expenses': 'M {:,.0f}',
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+            st.markdown(
+                f"**{label} totals:** Cash {money(mdf['cash_collected'].sum())} | "
+                f"Credits {money(mdf['credits'].sum())} | "
+                f"Fuel {money(mdf['fuel_cost'].sum())} | "
+                f"Top-up {money(mdf['fuel_topup'].sum())} | "
+                f"Driver Comp {money(mdf['driver_compensation'].sum())}"
+            )
+            st.markdown("---")
+    else:
+        show_cols = ['record_date', 'vehicle_name', 'cash_collected', 'fuel_cost', 'fuel_topup',
+                     'driver_compensation', 'credits', 'other_expenses', 'trips', 'driver_name']
+        display = filtered[[c for c in show_cols if c in filtered.columns]].copy()
+        display['record_date'] = display['record_date'].dt.strftime('%Y-%m-%d')
+        st.dataframe(
+            display.style.format({
+                'cash_collected': 'M {:,.0f}',
+                'fuel_cost': 'M {:,.0f}',
+                'fuel_topup': 'M {:,.0f}',
+                'driver_compensation': 'M {:,.0f}',
+                'credits': 'M {:,.0f}',
+                'other_expenses': 'M {:,.0f}',
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+        st.markdown(
+            f"**Totals:** Cash {money(filtered['cash_collected'].sum())} | "
+            f"Credits {money(filtered['credits'].sum())} | "
+            f"Fuel {money(filtered['fuel_cost'].sum())} | "
+            f"Top-up {money(filtered['fuel_topup'].sum())} | "
+            f"Driver Comp {money(filtered['driver_compensation'].sum())}"
+        )
 
     # ===== DELETE RECORD =====
     st.markdown("---")
     st.subheader("Delete a Record")
-    st.caption("Select a record below if you made a mistake and want to remove it.")
+    st.caption("Select a record if you made a mistake and want to remove it.")
 
     if not filtered.empty:
-        # Create readable labels for selection
         options = []
         id_map = {}
         for _, row in filtered.iterrows():
-            label = f"ID {row['id']} | {row['record_date']} | {row['vehicle_name']} | Cash: M{row['cash_collected']:,.0f} | Fuel: M{row['fuel_cost']:,.0f}"
+            dstr = row['record_date'].strftime('%Y-%m-%d') if hasattr(row['record_date'], 'strftime') else str(row['record_date'])
+            label = f"ID {row['id']} | {dstr} | {row['vehicle_name']} | Cash: M{row['cash_collected']:,.0f} | Fuel: M{row['fuel_cost']:,.0f}"
             options.append(label)
-            id_map[label] = row['id']
+            id_map[label] = int(row['id'])
 
         selected_label = st.selectbox("Select record to delete", options)
         selected_id = id_map[selected_label]
@@ -660,44 +749,123 @@ def page_records():
                 st.success(f"Record ID {selected_id} has been deleted.")
                 st.rerun()
         with col_del2:
-            st.warning("This cannot be undone. Make sure you selected the correct record.")
+            st.warning("This cannot be undone.")
 
-    # Export
     st.markdown("---")
     csv = filtered.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, "maxy_taxi_records.csv", "text/csv")
 
 def page_vehicles():
     st.header("Fleet")
-    df = query_df("""
-        SELECT vehicle_name, plate,
-               SUM(cash_collected) as total_cash,
-               SUM(fuel_cost) as total_fuel,
-               SUM(other_expenses) as total_other,
-               SUM(trips) as total_trips,
-               SUM(credit_alliance + credit_lehae + credit_worldvision + credit_waleslink + credit_lnlvip) as total_credits
-        FROM daily_records GROUP BY vehicle_name, plate
-    """)
+    st.caption("Financial Year 2026 – 2027 (June to May)")
+
+    df = prepare_records_df()
 
     for v in VEHICLES:
         with st.expander(f"{v['name']} — {v['plate']}", expanded=False):
-            row = df[df['plate'] == v['plate']] if not df.empty else pd.DataFrame()
-            if not row.empty:
-                r = row.iloc[0]
-                st.write(f"**Total Cash:** {money(r['total_cash'])}")
-                st.write(f"**Total Credits:** {money(r['total_credits'])}")
-                st.write(f"**Total Fuel Cost:** {money(r['total_fuel'])}")
-                st.write(f"**Other Expenses:** {money(r['total_other'])}")
-                st.write(f"**Trips:** {int(r['total_trips'])}")
-                net = r['total_cash'] + r['total_credits'] - r['total_fuel'] - r['total_other']
-                st.write(f"**Net (approx):** {money(net)}")
-            else:
+            vdf = df[df['plate'] == v['plate']] if not df.empty else pd.DataFrame()
+            if vdf.empty:
                 st.caption("No records yet for this vehicle.")
+                continue
+
+            rows = []
+            for y, m, label in FY_MONTHS:
+                mdf = vdf[(vdf['record_date'].dt.year == y) & (vdf['record_date'].dt.month == m)]
+                cash = mdf['cash_collected'].sum() if not mdf.empty else 0
+                credits = mdf['credits'].sum() if not mdf.empty else 0
+                fuel = mdf['fuel_cost'].sum() if not mdf.empty else 0
+                topup = mdf['fuel_topup'].sum() if not mdf.empty else 0
+                dcomp = mdf['driver_compensation'].sum() if not mdf.empty else 0
+                other = mdf['other_expenses'].sum() if not mdf.empty else 0
+                trips = int(mdf['trips'].sum()) if not mdf.empty else 0
+                net = cash + credits - fuel - topup - dcomp - other
+                rows.append({
+                    "Month": label,
+                    "Cash": cash,
+                    "Credits": credits,
+                    "Fuel": fuel,
+                    "Top-up": topup,
+                    "Driver Comp": dcomp,
+                    "Other": other,
+                    "Net": net,
+                    "Trips": trips
+                })
+
+            v_fy = pd.DataFrame(rows)
+            # Add total
+            totals = {
+                "Month": "TOTAL",
+                "Cash": v_fy["Cash"].sum(),
+                "Credits": v_fy["Credits"].sum(),
+                "Fuel": v_fy["Fuel"].sum(),
+                "Top-up": v_fy["Top-up"].sum(),
+                "Driver Comp": v_fy["Driver Comp"].sum(),
+                "Other": v_fy["Other"].sum(),
+                "Net": v_fy["Net"].sum(),
+                "Trips": int(v_fy["Trips"].sum())
+            }
+            v_fy = pd.concat([v_fy, pd.DataFrame([totals])], ignore_index=True)
+
+            st.dataframe(
+                v_fy.style.format({
+                    "Cash": "M {:,.0f}",
+                    "Credits": "M {:,.0f}",
+                    "Fuel": "M {:,.0f}",
+                    "Top-up": "M {:,.0f}",
+                    "Driver Comp": "M {:,.0f}",
+                    "Other": "M {:,.0f}",
+                    "Net": "M {:,.0f}",
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
 
 def page_clients():
     st.header("Clients")
+    st.caption("Financial Year 2026 – 2027 (June to May)")
 
-    with st.expander("➕ Add New Client", expanded=False):
+    # Monthly Credits Summary for contract clients
+    st.subheader("Monthly Credits Summary")
+    df = prepare_records_df()
+    if df.empty:
+        st.info("No credit data yet.")
+    else:
+        rows = []
+        for y, m, label in FY_MONTHS:
+            mdf = df[(df['record_date'].dt.year == y) & (df['record_date'].dt.month == m)]
+            rows.append({
+                "Month": label,
+                "Alliance": mdf['credit_alliance'].sum() if not mdf.empty else 0,
+                "Lehae": mdf['credit_lehae'].sum() if not mdf.empty else 0,
+                "World Vision": mdf['credit_worldvision'].sum() if not mdf.empty else 0,
+                "Waleslink": mdf['credit_waleslink'].sum() if not mdf.empty else 0,
+                "LNLVIP": mdf['credit_lnlvip'].sum() if not mdf.empty else 0,
+            })
+        cred_df = pd.DataFrame(rows)
+        totals = {
+            "Month": "TOTAL",
+            "Alliance": cred_df["Alliance"].sum(),
+            "Lehae": cred_df["Lehae"].sum(),
+            "World Vision": cred_df["World Vision"].sum(),
+            "Waleslink": cred_df["Waleslink"].sum(),
+            "LNLVIP": cred_df["LNLVIP"].sum(),
+        }
+        cred_df = pd.concat([cred_df, pd.DataFrame([totals])], ignore_index=True)
+        st.dataframe(
+            cred_df.style.format({
+                "Alliance": "M {:,.0f}",
+                "Lehae": "M {:,.0f}",
+                "World Vision": "M {:,.0f}",
+                "Waleslink": "M {:,.0f}",
+                "LNLVIP": "M {:,.0f}",
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.markdown("---")
+    st.subheader("Client Directory")
+    with st.expander("Add New Client", expanded=False):
         with st.form("client_form"):
             name = st.text_input("Client / Company Name *")
             contact = st.text_input("Contact Person")
@@ -719,7 +887,7 @@ def page_clients():
 
     clients = query_df("SELECT * FROM clients ORDER BY name")
     if clients.empty:
-        st.info("No clients yet. Add one above.")
+        st.info("No clients saved yet. Add one above.")
     else:
         st.dataframe(clients[['id', 'name', 'contact_person', 'phone', 'email', 'tin']], use_container_width=True, hide_index=True)
 
