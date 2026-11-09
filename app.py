@@ -93,7 +93,7 @@ DB_PATH = "maxy_taxi.db"
 BUSINESS_NAME = "Maxy Taxi Transport"
 BUSINESS_TAGLINE = "SAFE • QUICK • RELIABLE"
 BUSINESS_LOCATION = "Puma House 12 United Nations Road, Maseru"
-BUSINESS_PHONE = "+266 27335933 / 68335933"
+BUSINESS_PHONE = "+266 27333388 / 68335933"
 BUSINESS_WHATSAPP = "+266 56432571"
 BUSINESS_EMAIL = "maxytaxicab@gmail.com"
 BUSINESS_TIN = ""            # Add your TIN later if needed
@@ -248,26 +248,31 @@ def generate_invoice_pdf(invoice, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=10, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=10, leading=14)
 
-    # Header with logo (Letterhead)
+    # Professional letterhead header
+    header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
-    if os.path.exists(logo_path):
-        logo = Image(logo_path, width=170*mm, height=38*mm)
+    if os.path.exists(header_path):
+        header = Image(header_path, width=180*mm, height=38*mm)
+        header.hAlign = 'CENTER'
+        elements.append(header)
+        elements.append(Spacer(1, 3*mm))
+    elif os.path.exists(logo_path):
+        logo = Image(logo_path, width=90*mm, height=35*mm)
         logo.hAlign = 'CENTER'
         elements.append(logo)
+        elements.append(Paragraph(f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}", subtitle))
+        elements.append(Paragraph(f"{BUSINESS_EMAIL}  |  {BUSINESS_LOCATION}", subtitle))
         elements.append(Spacer(1, 2*mm))
     else:
-        elements.append(Paragraph(BUSINESS_NAME.upper(), title_style))
-        elements.append(Paragraph(BUSINESS_TAGLINE, subtitle))
-        elements.append(Paragraph(BUSINESS_LOCATION, subtitle))
-        contact_lines = f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}"
-        elements.append(Paragraph(contact_lines, subtitle))
-        elements.append(Paragraph(f"Email: {BUSINESS_EMAIL}", subtitle))
+        elements.append(Paragraph("MAXY TAXI", title_style))
+        elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
+        elements.append(Paragraph(f"{BUSINESS_LOCATION}", subtitle))
 
     elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#f5a623"), spaceAfter=4*mm))
 
     # Invoice title
     elements.append(Paragraph("TAX INVOICE", ParagraphStyle('InvTitle', parent=styles['Heading1'],
-                                                             fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#c0392b"))))
+                                                             fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
     elements.append(Spacer(1, 3*mm))
 
     # Meta info
@@ -334,13 +339,13 @@ def generate_invoice_pdf(invoice, client=None):
     totals_data = [
         [Paragraph("<b>Subtotal</b>", normal), Paragraph(f"M {amount:,.2f}", right)],
         [Paragraph("<b>Amount Paid</b>", normal), Paragraph(f"M {paid:,.2f}", right)],
-        [Paragraph("<b>BALANCE DUE</b>", ParagraphStyle('Bal', parent=normal, textColor=colors.HexColor("#c0392b"), fontSize=11)),
-         Paragraph(f"<b>M {balance:,.2f}</b>", ParagraphStyle('BalR', parent=right, textColor=colors.HexColor("#c0392b"), fontSize=11))],
+        [Paragraph("<b>BALANCE DUE</b>", ParagraphStyle('Bal', parent=normal, textColor=colors.HexColor("#1a1a1a"), fontSize=11)),
+         Paragraph(f"<b>M {balance:,.2f}</b>", ParagraphStyle('BalR', parent=right, textColor=colors.HexColor("#1a1a1a"), fontSize=11))],
     ]
     totals_table = Table(totals_data, colWidths=[130*mm, 50*mm])
     totals_table.setStyle(TableStyle([
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('LINEABOVE', (0, 2), (-1, 2), 1, colors.HexColor("#c0392b")),
+        ('LINEABOVE', (0, 2), (-1, 2), 1.5, colors.HexColor("#f5a623")),
         ('TOPPADDING', (0, 0), (-1, -1), 3),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
     ]))
@@ -379,25 +384,29 @@ def generate_quotation_pdf(quote, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=10, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=10)
 
-    # Header with logo (Letterhead)
+    # Professional letterhead header
+    header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
-    if os.path.exists(logo_path):
-        logo = Image(logo_path, width=170*mm, height=38*mm)
+    if os.path.exists(header_path):
+        header = Image(header_path, width=180*mm, height=38*mm)
+        header.hAlign = 'CENTER'
+        elements.append(header)
+        elements.append(Spacer(1, 3*mm))
+    elif os.path.exists(logo_path):
+        logo = Image(logo_path, width=90*mm, height=35*mm)
         logo.hAlign = 'CENTER'
         elements.append(logo)
+        elements.append(Paragraph(f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}", subtitle))
+        elements.append(Paragraph(f"{BUSINESS_EMAIL}  |  {BUSINESS_LOCATION}", subtitle))
         elements.append(Spacer(1, 2*mm))
     else:
-        elements.append(Paragraph(BUSINESS_NAME.upper(), title_style))
-        elements.append(Paragraph(BUSINESS_TAGLINE, subtitle))
-        elements.append(Paragraph(BUSINESS_LOCATION, subtitle))
-        contact_lines = f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}"
-        elements.append(Paragraph(contact_lines, subtitle))
-        elements.append(Paragraph(f"Email: {BUSINESS_EMAIL}", subtitle))
+        elements.append(Paragraph("MAXY TAXI", title_style))
+        elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
 
     elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#f5a623"), spaceAfter=4*mm))
 
     elements.append(Paragraph("QUOTATION", ParagraphStyle('QTitle', parent=styles['Heading1'],
-                                                           fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#2980b9"))))
+                                                           fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
     elements.append(Spacer(1, 3*mm))
 
     meta_data = [
@@ -1154,7 +1163,7 @@ def main():
     st.sidebar.markdown("""
     <div style="border: 2px solid #f5a623; border-radius: 10px; padding: 12px; margin-top: 14px; background: #111;">
         <p style="color:#f5a623; font-weight:bold; margin:0 0 8px 0; font-size:13px;">Contact</p>
-        <p style="color:#ddd; font-size:12px; margin:3px 0;">📞 +266 27335933 / 68335933</p>
+        <p style="color:#ddd; font-size:12px; margin:3px 0;">📞 +266 27333388 / 68335933</p>
         <p style="color:#ddd; font-size:12px; margin:3px 0;">💬 +266 56432571</p>
         <p style="color:#ddd; font-size:12px; margin:3px 0;">✉️ maxytaxicab@gmail.com</p>
         <p style="color:#ddd; font-size:12px; margin:8px 0 0 0;">📍 Puma House 12<br>United Nations Road, Maseru</p>
