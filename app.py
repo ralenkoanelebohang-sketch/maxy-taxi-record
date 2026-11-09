@@ -67,15 +67,17 @@ def check_password():
     if st.session_state.authenticated:
         return True
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br><br>", unsafe_allow_html=True)
     col_a, col_b, col_c = st.columns([1, 2, 1])
     with col_b:
         logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
-        if os.path.exists(logo_icon):
+        logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
+        if os.path.exists(logo_clean):
+            st.image(logo_clean, use_container_width=True)
+        elif os.path.exists(logo_icon):
             st.image(logo_icon, use_container_width=True)
-        st.markdown("<h2 style='text-align:center; color:#f5a623; margin:8px 0 4px 0;'>MAXY TAXI</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#aaa; font-size:12px; letter-spacing:2px;'>SAFE • QUICK • RELIABLE</p>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#888; font-size:13px; margin-top:16px;'>Business Records Login</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#aaa; font-size:12px; letter-spacing:2px; margin-top:4px;'>SAFE • QUICK • RELIABLE</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#888; font-size:13px; margin-top:20px;'>Business Records Login</p>", unsafe_allow_html=True)
         password = st.text_input("Password", type="password", key="password_input", label_visibility="collapsed", placeholder="Enter password")
         if st.button("Login", type="primary", use_container_width=True):
             if password == APP_PASSWORD:
@@ -538,8 +540,18 @@ def prepare_records_df():
 
 # ---------------------- PAGES ----------------------
 def page_dashboard():
-    st.header("Dashboard")
-    st.caption("Financial Year 2026 – 2027 (June to May)")
+    # Logo header
+    logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
+    logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
+    col_l, col_t = st.columns([1, 3])
+    with col_l:
+        if os.path.exists(logo_clean):
+            st.image(logo_clean, use_container_width=True)
+        elif os.path.exists(logo_icon):
+            st.image(logo_icon, use_container_width=True)
+    with col_t:
+        st.header("Dashboard")
+        st.caption("Financial Year 2026 – 2027 (June to May)")
 
     df = prepare_records_df()
     today = date.today()
@@ -1131,12 +1143,12 @@ def main():
     <div style="border: 2px solid #f5a623; border-radius: 12px; padding: 14px; margin-bottom: 12px; background: #111;">
     """, unsafe_allow_html=True)
 
+    logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
     logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
-    logo_full = os.path.join(os.path.dirname(__file__), "logo.jpg")
-    if os.path.exists(logo_icon):
+    if os.path.exists(logo_clean):
+        st.sidebar.image(logo_clean, use_container_width=True)
+    elif os.path.exists(logo_icon):
         st.sidebar.image(logo_icon, use_container_width=True)
-    elif os.path.exists(logo_full):
-        st.sidebar.image(logo_full, use_container_width=True)
     else:
         st.sidebar.markdown("<h3 style='color:#f5a623; text-align:center; margin:0;'>MAXY TAXI</h3>", unsafe_allow_html=True)
 
