@@ -442,16 +442,14 @@ def generate_invoice_pdf(invoice, client=None):
     elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#f5a623"), spaceAfter=4*mm))
 
     # Invoice title
-    elements.append(Paragraph("TAX INVOICE", ParagraphStyle('InvTitle', parent=styles['Heading1'],
-                                                             fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
+    elements.append(Paragraph("INVOICE", ParagraphStyle('InvTitle', parent=styles['Heading1'],
+                                                         fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
     elements.append(Spacer(1, 3*mm))
 
-    # Meta info
+    # Meta info (Invoice No + Date only)
     meta_data = [
         [Paragraph(f"<b>Invoice No:</b> {invoice['invoice_number']}", normal),
          Paragraph(f"<b>Date:</b> {invoice['invoice_date']}", right)],
-        [Paragraph(f"<b>Status:</b> {invoice['status']}", normal),
-         Paragraph(f"<b>Due Date:</b> {invoice['due_date']}", right)],
     ]
     meta_table = Table(meta_data, colWidths=[95*mm, 85*mm])
     meta_table.setStyle(TableStyle([
@@ -459,10 +457,10 @@ def generate_invoice_pdf(invoice, client=None):
         ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
     ]))
     elements.append(meta_table)
-    elements.append(Spacer(1, 4*mm))
+    elements.append(Spacer(1, 5*mm))
 
-    # Bill To
-    elements.append(Paragraph("<b>BILL TO</b>", heading))
+    # Invoice To
+    elements.append(Paragraph("<b>INVOICE TO</b>", heading))
     client_name = invoice.get('client_name') or (client['name'] if client else "Cash / Walk-in")
     elements.append(Paragraph(client_name, normal))
     if client:
@@ -474,65 +472,94 @@ def generate_invoice_pdf(invoice, client=None):
             elements.append(Paragraph(client['address'], normal))
         if client.get('tin'):
             elements.append(Paragraph(f"TIN: {client['tin']}", normal))
-    elements.append(Spacer(1, 4*mm))
+    elements.append(Spacer(1, 5*mm))
 
-    # Description / Items
-    elements.append(Paragraph("<b>DESCRIPTION OF SERVICES</b>", heading))
+    # Cost breakdown table: Date | Description | Amount
+    elements.append(Paragraph("<b>COST BREAKDOWN</b>", heading))
     desc = invoice.get('description') or "Transport services"
     amount = float(invoice.get('amount') or 0)
-    paid = float(invoice.get('amount_paid') or 0)
-    balance = amount - paid
+    inv_date = invoice.get('invoice_date') or ""
 
+    # Parse description lines if user enters multiple lines as breakdown
+    # Format expected: each line can be "date | description | amount" or free text
+    lines = [ln.strip() for ln in str(desc).split("\n") if ln.strip()]
     items_data = [
-        [Paragraph("<b>Description</b>", bold), Paragraph("<b>Amount (M)</b>", bold)],
-        [Paragraph(desc.replace("\n", "<br/>"), normal), Paragraph(f"{amount:,.2f}", right)],
+        [Paragraph("<b>Date</b>", bold),
+         Paragraph("<b>Description</b>", bold),
+         Paragraph("<b>Amount (M)</b>", bold)],
     ]
-    items_table = Table(items_data, colWidths=[130*mm, 50*mm])
+
+    parsed_total = 0.0
+    has_breakdown = False
+    for ln in lines:
+        parts = [p.strip() for p in ln.split("|")]
+        if len(parts) >= 3:
+            has_breakdown = True
+            try:
+                amt = float(parts[2].replace("M", "").replace(",", "").strip())
+            except Exception:
+                amt = 0.0
+            parsed_total += amt
+            items_data.append([
+                Paragraph(parts[0], normal),
+                Paragraph(parts[1], normal),
+                Paragraph(f"{amt:,.2f}", right),
+            ])
+        else:
+            items_data.append([
+                Paragraph(inv_date, normal),
+                Paragraph(ln, normal),
+                Paragraph("", right),
+            ])
+
+    # Extra empty rows so table is longer
+    for _ in range(6):
+        items_data.append([Paragraph("<br/>", normal), Paragraph("", normal), Paragraph("", right)])
+
+    # Total row
+    total_amount = parsed_total if has_breakdown and parsed_total > 0 else amount
+    items_data.append([
+        Paragraph("", normal),
+        Paragraph("<b>TOTAL</b>", bold),
+        Paragraph(f"<b>M {total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=11)),
+    ])
+
+    items_table = Table(items_data, colWidths=[35*mm, 100*mm, 45*mm])
     items_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5a623")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
+        ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-        ('TOPPADDING', (0, 0), (-1, 0), 6),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#fff8e7")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor("#fffaf0")),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#fff3d6")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 6),
         ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 1), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+        ('TOPPADDING', (0, 1), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+        ('LINEABOVE', (0, -1), (-1, -1), 1.5, colors.HexColor("#f5a623")),
     ]))
     elements.append(items_table)
-    elements.append(Spacer(1, 5*mm))
+    elements.append(Spacer(1, 8*mm))
 
-    # Totals
-    totals_data = [
-        [Paragraph("<b>Subtotal</b>", normal), Paragraph(f"M {amount:,.2f}", right)],
-        [Paragraph("<b>Amount Paid</b>", normal), Paragraph(f"M {paid:,.2f}", right)],
-        [Paragraph("<b>BALANCE DUE</b>", ParagraphStyle('Bal', parent=normal, textColor=colors.HexColor("#1a1a1a"), fontSize=11)),
-         Paragraph(f"<b>M {balance:,.2f}</b>", ParagraphStyle('BalR', parent=right, textColor=colors.HexColor("#1a1a1a"), fontSize=11))],
-    ]
-    totals_table = Table(totals_data, colWidths=[130*mm, 50*mm])
-    totals_table.setStyle(TableStyle([
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('LINEABOVE', (0, 2), (-1, 2), 1.5, colors.HexColor("#f5a623")),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-    ]))
-    elements.append(totals_table)
+    # Banking details
+    elements.append(Paragraph("<b>BANKING DETAILS</b>", heading))
+    bank_style = ParagraphStyle('Bank', parent=normal, fontSize=10, leading=14)
+    elements.append(Paragraph("<b>Bank:</b> Postbank", bank_style))
+    elements.append(Paragraph("<b>Account No:</b> 1017866800015", bank_style))
+    elements.append(Paragraph("<b>Branch Code:</b> 500100", bank_style))
+    elements.append(Paragraph("<b>Account Name:</b> Maxy Taxi Transport", bank_style))
+    elements.append(Spacer(1, 12*mm))
 
-    if invoice.get('notes'):
-        elements.append(Spacer(1, 5*mm))
-        elements.append(Paragraph("<b>Notes</b>", heading))
-        elements.append(Paragraph(invoice['notes'], normal))
-
-    elements.append(Spacer(1, 10*mm))
-    elements.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
-    elements.append(Paragraph("Thank you for your business. Payment can be made to Maxy Taxi Transport (Postbank).",
-                              ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=colors.grey)))
-    elements.append(Paragraph("This is a computer-generated document.",
-                              ParagraphStyle('Footer2', parent=styles['Normal'], fontSize=7, alignment=TA_CENTER, textColor=colors.grey)))
+    elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#f5a623")))
+    elements.append(Spacer(1, 4*mm))
+    elements.append(Paragraph("Thank you for your Business",
+                              ParagraphStyle('Thanks', parent=styles['Normal'], fontSize=12,
+                                             alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
+                                             fontName='Helvetica-Bold')))
 
     doc.build(elements)
     buffer.seek(0)
@@ -1183,8 +1210,12 @@ def page_invoices():
                 amount = st.number_input("Invoice Amount (M)", min_value=0.0, step=100.0, format="%.2f")
                 amount_paid = st.number_input("Amount already paid (M)", min_value=0.0, step=50.0, format="%.2f")
 
-            description = st.text_area("Description of services *", height=100)
-            notes = st.text_area("Notes")
+            description = st.text_area(
+                "Cost breakdown * (one line per item)",
+                height=140,
+                placeholder="04 Oct | Local transport for 4 days | 600\n09 Oct | Trip to Senqu | 900"
+            )
+            st.caption("Format: Date | Description | Amount   (one item per line)")
             status = st.selectbox("Status", ["Unpaid", "Partial", "Paid", "Overdue", "Cancelled"])
 
             if st.form_submit_button("Create Invoice", type="primary"):
