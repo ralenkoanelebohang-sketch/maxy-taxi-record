@@ -398,53 +398,48 @@ def create_pdf_buffer():
 def generate_invoice_pdf(invoice, client=None):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
-                            rightMargin=15*mm, leftMargin=15*mm,
-                            topMargin=15*mm, bottomMargin=15*mm)
+                            rightMargin=12*mm, leftMargin=12*mm,
+                            topMargin=8*mm, bottomMargin=10*mm)
     styles = getSampleStyleSheet()
     elements = []
 
-    # Custom styles
     title_style = ParagraphStyle(
-        'Title', parent=styles['Heading1'], fontSize=18, alignment=TA_CENTER,
-        spaceAfter=2*mm, textColor=colors.HexColor("#1a1a1a")
+        'Title', parent=styles['Heading1'], fontSize=16, alignment=TA_CENTER,
+        spaceAfter=1*mm, textColor=colors.HexColor("#1a1a1a")
     )
     subtitle = ParagraphStyle(
-        'Subtitle', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER,
-        textColor=colors.HexColor("#555555"), spaceAfter=4*mm
+        'Subtitle', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER,
+        textColor=colors.HexColor("#555555"), spaceAfter=1*mm
     )
     heading = ParagraphStyle(
-        'Heading', parent=styles['Heading2'], fontSize=12, spaceBefore=4*mm, spaceAfter=2*mm
+        'Heading', parent=styles['Heading2'], fontSize=10, spaceBefore=2*mm, spaceAfter=1*mm
     )
-    normal = ParagraphStyle('Normal', parent=styles['Normal'], fontSize=10, leading=14)
-    right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=10, alignment=TA_RIGHT)
-    bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=10, leading=14)
+    normal = ParagraphStyle('Normal', parent=styles['Normal'], fontSize=9, leading=12)
+    right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
+    bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9, leading=12)
 
-    # Professional letterhead header
+    # Compact letterhead at upper edge
     header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(header_path):
-        header = Image(header_path, width=180*mm, height=38*mm)
+        header = Image(header_path, width=186*mm, height=28*mm)
         header.hAlign = 'CENTER'
         elements.append(header)
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 1*mm))
     elif os.path.exists(logo_path):
-        logo = Image(logo_path, width=90*mm, height=35*mm)
+        logo = Image(logo_path, width=70*mm, height=22*mm)
         logo.hAlign = 'CENTER'
         elements.append(logo)
-        elements.append(Paragraph(f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}", subtitle))
-        elements.append(Paragraph(f"{BUSINESS_EMAIL}  |  {BUSINESS_LOCATION}", subtitle))
-        elements.append(Spacer(1, 2*mm))
+        elements.append(Paragraph(f"{BUSINESS_PHONE}  |  {BUSINESS_WHATSAPP}  |  {BUSINESS_EMAIL}", subtitle))
     else:
         elements.append(Paragraph("MAXY TAXI", title_style))
         elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
-        elements.append(Paragraph(f"{BUSINESS_LOCATION}", subtitle))
 
-    elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#f5a623"), spaceAfter=4*mm))
+    elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#f5a623"), spaceAfter=2*mm))
 
-    # Invoice title
     elements.append(Paragraph("INVOICE", ParagraphStyle('InvTitle', parent=styles['Heading1'],
-                                                         fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
-    elements.append(Spacer(1, 3*mm))
+                                                         fontSize=14, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
+    elements.append(Spacer(1, 2*mm))
 
     # Meta info (Invoice No + Date only)
     meta_data = [
@@ -474,18 +469,16 @@ def generate_invoice_pdf(invoice, client=None):
             elements.append(Paragraph(f"TIN: {client['tin']}", normal))
     elements.append(Spacer(1, 5*mm))
 
-    # Cost breakdown table: DESCRIPTION | QTY | AMOUNT (matches preferred layout)
-    elements.append(Paragraph("<b>COST BREAKDOWN</b>", heading))
+    # DESCRIPTION | QTY | AMOUNT table (no "Cost Breakdown" title)
     desc = invoice.get('description') or "Transport services"
     amount = float(invoice.get('amount') or 0)
 
-    # Format: Description | Qty | Amount   (one item per line)
-    # Also accepts: Description | Amount  (qty blank)
     lines = [ln.strip() for ln in str(desc).split("\n") if ln.strip()]
+    header_style = ParagraphStyle('TH', parent=bold, textColor=colors.HexColor("#1a1a1a"))
     items_data = [
-        [Paragraph("<b>DESCRIPTION</b>", bold),
-         Paragraph("<b>QTY</b>", bold),
-         Paragraph("<b>AMOUNT</b>", bold)],
+        [Paragraph("<b>DESCRIPTION</b>", header_style),
+         Paragraph("<b>QTY</b>", header_style),
+         Paragraph("<b>AMOUNT</b>", header_style)],
     ]
 
     parsed_total = 0.0
@@ -494,7 +487,6 @@ def generate_invoice_pdf(invoice, client=None):
         parts = [p.strip() for p in ln.split("|")]
         if len(parts) >= 3:
             has_breakdown = True
-            qty = parts[1]
             try:
                 amt = float(parts[2].replace("M", "").replace(",", "").strip())
             except Exception:
@@ -502,7 +494,7 @@ def generate_invoice_pdf(invoice, client=None):
             parsed_total += amt
             items_data.append([
                 Paragraph(parts[0], normal),
-                Paragraph(qty, normal),
+                Paragraph(parts[1], normal),
                 Paragraph(f"M{amt:,.2f}", right),
             ])
         elif len(parts) == 2:
@@ -524,52 +516,52 @@ def generate_invoice_pdf(invoice, client=None):
                 Paragraph("", right),
             ])
 
-    # Extra empty rows so table extends down the page
-    for _ in range(5):
+    # A few empty rows for professional spacing (keep one page)
+    for _ in range(3):
         items_data.append([Paragraph("<br/>", normal), Paragraph("", normal), Paragraph("", right)])
 
     total_amount = parsed_total if has_breakdown and parsed_total > 0 else amount
     items_data.append([
         Paragraph("", normal),
         Paragraph("<b>TOTAL</b>", bold),
-        Paragraph(f"<b>M{total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=11)),
+        Paragraph(f"<b>M{total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=10)),
     ])
 
-    items_table = Table(items_data, colWidths=[100*mm, 30*mm, 50*mm])
+    items_table = Table(items_data, colWidths=[105*mm, 28*mm, 47*mm])
     items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5e6d3")),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5a623")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
         ('ALIGN', (1, 0), (1, -1), 'CENTER'),
         ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-        ('TOPPADDING', (0, 0), (-1, 0), 10),
-        ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor("#fdf8f3")),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#fdf8f3")),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 7),
+        ('TOPPADDING', (0, 0), (-1, 0), 7),
+        ('BACKGROUND', (0, 1), (-1, -2), colors.white),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.white),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 1), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-        ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor("#e8d5c0")),
-        ('LINEABOVE', (1, -1), (-1, -1), 1, colors.HexColor("#cccccc")),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 1), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+        ('LINEBELOW', (0, 0), (-1, 0), 1.5, colors.HexColor("#f5a623")),
+        ('LINEBELOW', (0, 1), (-1, -2), 0.3, colors.HexColor("#dddddd")),
+        ('LINEABOVE', (1, -1), (-1, -1), 1.5, colors.HexColor("#f5a623")),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
     ]))
     elements.append(items_table)
-    elements.append(Spacer(1, 8*mm))
+    elements.append(Spacer(1, 5*mm))
 
     # Banking details
     elements.append(Paragraph("<b>BANKING DETAILS</b>", heading))
-    bank_style = ParagraphStyle('Bank', parent=normal, fontSize=10, leading=14)
-    elements.append(Paragraph("<b>Bank:</b> Postbank", bank_style))
-    elements.append(Paragraph("<b>Account No:</b> 1017866800015", bank_style))
-    elements.append(Paragraph("<b>Branch Code:</b> 500100", bank_style))
+    bank_style = ParagraphStyle('Bank', parent=normal, fontSize=9, leading=12)
+    elements.append(Paragraph("<b>Bank:</b> Postbank &nbsp;&nbsp; <b>Account No:</b> 1017866800015 &nbsp;&nbsp; <b>Branch:</b> 500100", bank_style))
     elements.append(Paragraph("<b>Account Name:</b> Maxy Taxi Transport", bank_style))
-    elements.append(Spacer(1, 12*mm))
+    elements.append(Spacer(1, 6*mm))
 
     elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#f5a623")))
-    elements.append(Spacer(1, 4*mm))
+    elements.append(Spacer(1, 3*mm))
     elements.append(Paragraph("Thank you for your Business",
-                              ParagraphStyle('Thanks', parent=styles['Normal'], fontSize=12,
+                              ParagraphStyle('Thanks', parent=styles['Normal'], fontSize=11,
                                              alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
                                              fontName='Helvetica-Bold')))
 
@@ -580,35 +572,33 @@ def generate_invoice_pdf(invoice, client=None):
 def generate_quotation_pdf(quote, client=None):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
-                            rightMargin=15*mm, leftMargin=15*mm,
-                            topMargin=15*mm, bottomMargin=15*mm)
+                            rightMargin=12*mm, leftMargin=12*mm,
+                            topMargin=8*mm, bottomMargin=10*mm)
     styles = getSampleStyleSheet()
     elements = []
 
-    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=18, alignment=TA_CENTER,
-                                 spaceAfter=2*mm, textColor=colors.HexColor("#1a1a1a"))
-    subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER,
-                              textColor=colors.HexColor("#555555"), spaceAfter=4*mm)
-    heading = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=12, spaceBefore=4*mm, spaceAfter=2*mm)
-    normal = ParagraphStyle('Normal', parent=styles['Normal'], fontSize=10, leading=14)
-    right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=10, alignment=TA_RIGHT)
-    bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=10)
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, alignment=TA_CENTER,
+                                 spaceAfter=1*mm, textColor=colors.HexColor("#1a1a1a"))
+    subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER,
+                              textColor=colors.HexColor("#555555"), spaceAfter=1*mm)
+    heading = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=10, spaceBefore=2*mm, spaceAfter=1*mm)
+    normal = ParagraphStyle('Normal', parent=styles['Normal'], fontSize=9, leading=12)
+    right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
+    bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9)
 
-    # Professional letterhead header
+    # Compact letterhead at upper edge
     header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(header_path):
-        header = Image(header_path, width=180*mm, height=38*mm)
+        header = Image(header_path, width=186*mm, height=28*mm)
         header.hAlign = 'CENTER'
         elements.append(header)
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 1*mm))
     elif os.path.exists(logo_path):
-        logo = Image(logo_path, width=90*mm, height=35*mm)
+        logo = Image(logo_path, width=70*mm, height=22*mm)
         logo.hAlign = 'CENTER'
         elements.append(logo)
-        elements.append(Paragraph(f"Tel: {BUSINESS_PHONE}  |  WhatsApp: {BUSINESS_WHATSAPP}", subtitle))
-        elements.append(Paragraph(f"{BUSINESS_EMAIL}  |  {BUSINESS_LOCATION}", subtitle))
-        elements.append(Spacer(1, 2*mm))
+        elements.append(Paragraph(f"{BUSINESS_PHONE}  |  {BUSINESS_WHATSAPP}  |  {BUSINESS_EMAIL}", subtitle))
     else:
         elements.append(Paragraph("MAXY TAXI", title_style))
         elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
@@ -641,15 +631,15 @@ def generate_quotation_pdf(quote, client=None):
             elements.append(Paragraph(client['address'], normal))
     elements.append(Spacer(1, 5*mm))
 
-    elements.append(Paragraph("<b>COST BREAKDOWN</b>", heading))
     desc = quote.get('description') or "Transport services"
     amount = float(quote.get('amount') or 0)
 
     lines = [ln.strip() for ln in str(desc).split("\n") if ln.strip()]
+    header_style = ParagraphStyle('QTH', parent=bold, textColor=colors.HexColor("#1a1a1a"))
     items_data = [
-        [Paragraph("<b>DESCRIPTION</b>", bold),
-         Paragraph("<b>QTY</b>", bold),
-         Paragraph("<b>AMOUNT</b>", bold)],
+        [Paragraph("<b>DESCRIPTION</b>", header_style),
+         Paragraph("<b>QTY</b>", header_style),
+         Paragraph("<b>AMOUNT</b>", header_style)],
     ]
     parsed_total = 0.0
     has_breakdown = False
@@ -682,37 +672,39 @@ def generate_quotation_pdf(quote, client=None):
         else:
             items_data.append([Paragraph(ln, normal), Paragraph("", normal), Paragraph("", right)])
 
-    for _ in range(5):
+    for _ in range(3):
         items_data.append([Paragraph("<br/>", normal), Paragraph("", normal), Paragraph("", right)])
 
     total_amount = parsed_total if has_breakdown and parsed_total > 0 else amount
     items_data.append([
         Paragraph("", normal),
         Paragraph("<b>TOTAL</b>", bold),
-        Paragraph(f"<b>M{total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=11)),
+        Paragraph(f"<b>M{total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=10)),
     ])
 
-    items_table = Table(items_data, colWidths=[100*mm, 30*mm, 50*mm])
+    items_table = Table(items_data, colWidths=[105*mm, 28*mm, 47*mm])
     items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5e6d3")),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5a623")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
         ('ALIGN', (1, 0), (1, -1), 'CENTER'),
         ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-        ('TOPPADDING', (0, 0), (-1, 0), 10),
-        ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor("#fdf8f3")),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#fdf8f3")),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 7),
+        ('TOPPADDING', (0, 0), (-1, 0), 7),
+        ('BACKGROUND', (0, 1), (-1, -2), colors.white),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.white),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 1), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-        ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor("#e8d5c0")),
-        ('LINEABOVE', (1, -1), (-1, -1), 1, colors.HexColor("#cccccc")),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 1), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
+        ('LINEBELOW', (0, 0), (-1, 0), 1.5, colors.HexColor("#f5a623")),
+        ('LINEBELOW', (0, 1), (-1, -2), 0.3, colors.HexColor("#dddddd")),
+        ('LINEABOVE', (1, -1), (-1, -1), 1.5, colors.HexColor("#f5a623")),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
     ]))
     elements.append(items_table)
-    elements.append(Spacer(1, 8*mm))
+    elements.append(Spacer(1, 5*mm))
 
     if quote.get('notes'):
         elements.append(Spacer(1, 5*mm))
@@ -985,14 +977,22 @@ def page_records():
 
         for i, (day, gdf) in enumerate(date_groups):
             color = border_colors[i % 2]
-            day_str = day.strftime("%Y-%m-%d") if hasattr(day, 'strftime') else str(day)
+            if hasattr(day, 'strftime'):
+                day_str = day.strftime("%Y-%m-%d")
+                weekday = day.strftime("%A").upper()
+            else:
+                day_str = str(day)
+                try:
+                    weekday = pd.to_datetime(day).strftime("%A").upper()
+                except Exception:
+                    weekday = ""
             count = len(gdf)
 
             st.markdown(f"""
             <div style="border: 2px solid {color}; border-radius: 10px; padding: 10px 12px;
                         margin-bottom: 12px; background: #141414;">
                 <p style="color:{color}; font-weight:700; margin:0 0 6px 0; font-size:13px;">
-                    📅 {day_str}  ·  {count} vehicle{"s" if count != 1 else ""}
+                    📅 {day_str} &nbsp;·&nbsp; {weekday} &nbsp;·&nbsp; {count} vehicle{"s" if count != 1 else ""}
                 </p>
             </div>
             """, unsafe_allow_html=True)
