@@ -1012,6 +1012,28 @@ def page_records():
         with col_edit:
             with st.expander("Edit Record", expanded=False):
                 with st.form("edit_record_form"):
+                    # Date – changing this moves the record into the correct date group
+                    current_date = selected_row['record_date']
+                    if hasattr(current_date, 'date'):
+                        current_date = current_date.date()
+                    elif isinstance(current_date, str):
+                        current_date = pd.to_datetime(current_date).date()
+                    e_date = st.date_input("Date", value=current_date)
+
+                    # Vehicle
+                    veh_dict = vehicle_options()
+                    current_plate = str(selected_row.get('plate') or "")
+                    current_label = next(
+                        (k for k, v in veh_dict.items() if v.get('plate') == current_plate),
+                        list(veh_dict.keys())[0]
+                    )
+                    e_vehicle_label = st.selectbox(
+                        "Vehicle",
+                        list(veh_dict.keys()),
+                        index=list(veh_dict.keys()).index(current_label) if current_label in veh_dict else 0
+                    )
+                    e_vehicle = veh_dict[e_vehicle_label]
+
                     e_cash = st.number_input("Cash Collected (M)", value=float(selected_row.get('cash_collected') or 0), min_value=0.0, step=50.0, format="%.2f")
                     e_fuel = st.number_input("Fuel Cost (M)", value=float(selected_row.get('fuel_cost') or 0), min_value=0.0, step=10.0, format="%.2f")
                     e_topup = st.number_input("Fuel Top-up (M)", value=float(selected_row.get('fuel_topup') or 0), min_value=0.0, step=10.0, format="%.2f")
@@ -1029,6 +1051,7 @@ def page_records():
                     if st.form_submit_button("Save Changes", type="primary"):
                         execute("""
                             UPDATE daily_records SET
+                                record_date=?, vehicle_id=?, vehicle_name=?, plate=?,
                                 cash_collected=?, fuel_cost=?, fuel_topup=?, driver_compensation=?,
                                 trips=?, other_expenses=?,
                                 credit_alliance=?, credit_lehae=?, credit_worldvision=?,
@@ -1036,11 +1059,13 @@ def page_records():
                                 driver_name=?, notes=?
                             WHERE id=?
                         """, (
+                            e_date.isoformat(),
+                            e_vehicle['id'], e_vehicle['name'], e_vehicle['plate'],
                             e_cash, e_fuel, e_topup, e_dcomp, e_trips, e_other,
                             e_alliance, e_lehae, e_wv, e_wales, e_lnl,
                             e_driver, e_notes, selected_id
                         ))
-                        st.success(f"Record ID {selected_id} updated.")
+                        st.success(f"Record ID {selected_id} updated. It will now appear under {e_date}.")
                         st.rerun()
 
         with col_del:
