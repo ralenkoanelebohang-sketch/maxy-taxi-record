@@ -641,44 +641,78 @@ def generate_quotation_pdf(quote, client=None):
             elements.append(Paragraph(client['address'], normal))
     elements.append(Spacer(1, 5*mm))
 
-    elements.append(Paragraph("<b>DESCRIPTION OF SERVICES</b>", heading))
+    elements.append(Paragraph("<b>COST BREAKDOWN</b>", heading))
     desc = quote.get('description') or "Transport services"
     amount = float(quote.get('amount') or 0)
 
-    # Longer description table toward bottom of page
+    lines = [ln.strip() for ln in str(desc).split("\n") if ln.strip()]
     items_data = [
-        [Paragraph("<b>Description</b>", bold), Paragraph("<b>Amount (M)</b>", bold)],
-        [Paragraph(desc.replace("\n", "<br/>"), normal), Paragraph(f"{amount:,.2f}", right)],
-        [Paragraph("<br/><br/><br/><br/><br/><br/><br/><br/>", normal), Paragraph("", right)],
+        [Paragraph("<b>DESCRIPTION</b>", bold),
+         Paragraph("<b>QTY</b>", bold),
+         Paragraph("<b>AMOUNT</b>", bold)],
     ]
-    items_table = Table(items_data, colWidths=[130*mm, 50*mm])
+    parsed_total = 0.0
+    has_breakdown = False
+    for ln in lines:
+        parts = [p.strip() for p in ln.split("|")]
+        if len(parts) >= 3:
+            has_breakdown = True
+            try:
+                amt = float(parts[2].replace("M", "").replace(",", "").strip())
+            except Exception:
+                amt = 0.0
+            parsed_total += amt
+            items_data.append([
+                Paragraph(parts[0], normal),
+                Paragraph(parts[1], normal),
+                Paragraph(f"M{amt:,.2f}", right),
+            ])
+        elif len(parts) == 2:
+            has_breakdown = True
+            try:
+                amt = float(parts[1].replace("M", "").replace(",", "").strip())
+            except Exception:
+                amt = 0.0
+            parsed_total += amt
+            items_data.append([
+                Paragraph(parts[0], normal),
+                Paragraph("", normal),
+                Paragraph(f"M{amt:,.2f}", right),
+            ])
+        else:
+            items_data.append([Paragraph(ln, normal), Paragraph("", normal), Paragraph("", right)])
+
+    for _ in range(5):
+        items_data.append([Paragraph("<br/>", normal), Paragraph("", normal), Paragraph("", right)])
+
+    total_amount = parsed_total if has_breakdown and parsed_total > 0 else amount
+    items_data.append([
+        Paragraph("", normal),
+        Paragraph("<b>TOTAL</b>", bold),
+        Paragraph(f"<b>M{total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=11)),
+    ])
+
+    items_table = Table(items_data, colWidths=[100*mm, 30*mm, 50*mm])
     items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5a623")),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5e6d3")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-        ('TOPPADDING', (0, 0), (-1, 0), 8),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#fffaf0")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+        ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('TOPPADDING', (0, 0), (-1, 0), 10),
+        ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor("#fdf8f3")),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#fdf8f3")),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 8),
         ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 1), (-1, -1), 12),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 12),
-        ('MIN', (0, 1), (-1, 1), 80*mm),
+        ('TOPPADDING', (0, 1), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+        ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor("#e8d5c0")),
+        ('LINEABOVE', (1, -1), (-1, -1), 1, colors.HexColor("#cccccc")),
     ]))
     elements.append(items_table)
     elements.append(Spacer(1, 8*mm))
-
-    total_data = [[Paragraph("<b>TOTAL QUOTED</b>", ParagraphStyle('T', parent=normal, fontSize=11)),
-                   Paragraph(f"<b>M {amount:,.2f}</b>", ParagraphStyle('TR', parent=right, fontSize=11))]]
-    total_table = Table(total_data, colWidths=[130*mm, 50*mm])
-    total_table.setStyle(TableStyle([
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('LINEABOVE', (0, 0), (-1, 0), 1.5, colors.HexColor("#f5a623")),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    elements.append(total_table)
 
     if quote.get('notes'):
         elements.append(Spacer(1, 5*mm))
@@ -1181,47 +1215,93 @@ def page_clients():
 def page_quotations():
     st.header("Quotations")
 
-    # Create new
     with st.expander("Create New Quotation", expanded=True):
-        with st.form("quote_form"):
-            c1, c2 = st.columns(2)
-            with c1:
-                client_name = st.text_input("Client / Company Name *", placeholder="Type any client name")
-                quote_date = st.date_input("Quote Date", value=date.today())
-            with c2:
-                valid_days = st.number_input("Valid for (days)", min_value=1, value=14)
-                amount = st.number_input("Total Amount (M)", min_value=0.0, step=100.0, format="%.2f")
+        c1, c2 = st.columns(2)
+        with c1:
+            client_name = st.text_input("Client / Company Name *", placeholder="Type any client name", key="qt_client")
+            quote_date = st.date_input("Quote Date", value=date.today(), key="qt_date")
+        with c2:
+            status = st.selectbox("Status", ["Draft", "Sent", "Accepted", "Rejected", "Expired"], key="qt_status")
+            notes = st.text_input("Notes / Terms (optional)", placeholder="Payment terms, inclusions...", key="qt_notes")
 
-            description = st.text_area("Description of services *", height=100,
-                                       placeholder="e.g. Daily staff transport for World Vision – 5 vehicles × 20 days...")
-            notes = st.text_area("Notes / Terms", placeholder="Payment terms, inclusions, etc.")
-            status = st.selectbox("Status", ["Draft", "Sent", "Accepted", "Rejected", "Expired"])
+        st.markdown("""
+        <div style="background:#1a1a1a; border:1px solid #f5a62355; border-radius:10px; padding:10px 12px; margin:10px 0 6px 0;">
+            <p style="color:#f5a623; font-weight:700; margin:0; letter-spacing:1px; font-size:13px;">
+                DESCRIPTION &nbsp;&nbsp;|&nbsp;&nbsp; QTY &nbsp;&nbsp;|&nbsp;&nbsp; AMOUNT (M)
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-            if st.form_submit_button("Create Quotation", type="primary"):
-                if not description.strip() or not client_name.strip():
-                    st.error("Client name and description are required.")
+        if "qt_lines" not in st.session_state:
+            st.session_state.qt_lines = pd.DataFrame({
+                "DESCRIPTION": ["", "", ""],
+                "QTY": [None, None, None],
+                "AMOUNT (M)": [None, None, None],
+            })
+
+        edited_qt = st.data_editor(
+            st.session_state.qt_lines,
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key="qt_line_editor",
+            column_config={
+                "DESCRIPTION": st.column_config.TextColumn("DESCRIPTION", width="large"),
+                "QTY": st.column_config.NumberColumn("QTY", min_value=0, step=1, format="%d"),
+                "AMOUNT (M)": st.column_config.NumberColumn("AMOUNT (M)", min_value=0.0, step=50.0, format="%.2f"),
+            }
+        )
+        st.session_state.qt_lines = edited_qt
+
+        try:
+            qt_total = float(pd.to_numeric(edited_qt["AMOUNT (M)"], errors="coerce").fillna(0).sum())
+        except Exception:
+            qt_total = 0.0
+        st.metric("Total from table", money(qt_total))
+
+        if st.button("Create Quotation", type="primary", use_container_width=True):
+            if not client_name.strip():
+                st.error("Client name is required.")
+            else:
+                lines = []
+                for _, r in edited_qt.iterrows():
+                    desc = str(r.get("DESCRIPTION") or "").strip()
+                    if not desc:
+                        continue
+                    qty = r.get("QTY")
+                    amt = r.get("AMOUNT (M)")
+                    qty_s = "" if pd.isna(qty) else str(int(qty))
+                    amt_s = "0" if pd.isna(amt) else str(float(amt))
+                    lines.append(f"{desc} | {qty_s} | {amt_s}")
+                description = "\n".join(lines) if lines else "Transport services"
+                total_amount = qt_total if qt_total > 0 else 0.0
+
+                year = date.today().year
+                last = query_df("SELECT quote_number FROM quotations WHERE quote_number LIKE ? ORDER BY id DESC LIMIT 1",
+                                (f"QT-{year}-%",))
+                if last.empty:
+                    num = 1
                 else:
-                    year = date.today().year
-                    last = query_df("SELECT quote_number FROM quotations WHERE quote_number LIKE ? ORDER BY id DESC LIMIT 1",
-                                    (f"QT-{year}-%",))
-                    if last.empty:
+                    try:
+                        num = int(last.iloc[0]['quote_number'].split("-")[-1]) + 1
+                    except Exception:
                         num = 1
-                    else:
-                        try:
-                            num = int(last.iloc[0]['quote_number'].split("-")[-1]) + 1
-                        except:
-                            num = 1
-                    quote_number = f"QT-{year}-{num:04d}"
-                    valid_until = (quote_date + timedelta(days=int(valid_days))).isoformat()
+                quote_number = f"QT-{year}-{num:04d}"
+                valid_until = (quote_date + timedelta(days=14)).isoformat()
 
-                    execute("""
-                        INSERT INTO quotations (quote_number, client_id, client_name, quote_date, valid_until,
-                                                description, amount, status, notes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (quote_number, None, client_name.strip(), quote_date.isoformat(), valid_until,
-                          description, amount, status, notes))
-                    st.success(f"Quotation {quote_number} created!")
-                    st.rerun()
+                execute("""
+                    INSERT INTO quotations (quote_number, client_id, client_name, quote_date, valid_until,
+                                            description, amount, status, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (quote_number, None, client_name.strip(), quote_date.isoformat(), valid_until,
+                      description, total_amount, status, notes or ""))
+                st.session_state.qt_lines = pd.DataFrame({
+                    "DESCRIPTION": ["", "", ""],
+                    "QTY": [None, None, None],
+                    "AMOUNT (M)": [None, None, None],
+                })
+                st.success(f"Quotation {quote_number} created!")
+                st.rerun()
 
     # List
     st.subheader("All Quotations")
@@ -1253,62 +1333,103 @@ def page_quotations():
 def page_invoices():
     st.header("Invoices")
 
-    with st.expander("➕ Create New Invoice", expanded=True):
-        clients = query_df("SELECT id, name FROM clients ORDER BY name")
-        client_options = {row['name']: row['id'] for _, row in clients.iterrows()} if not clients.empty else {}
-        client_options["— Cash / Walk-in —"] = None
-
-        # Optional link to quote
+    with st.expander("Create New Invoice", expanded=True):
         quotes = query_df("SELECT id, quote_number, client_name, amount, description FROM quotations WHERE status = 'Accepted' ORDER BY id DESC")
         quote_options = {"— None —": None}
         for _, r in quotes.iterrows():
             quote_options[f"{r['quote_number']} ({r['client_name'] or '—'} – M{r['amount']:,.0f})"] = r['id']
 
-        with st.form("invoice_form"):
-            c1, c2 = st.columns(2)
-            with c1:
-                client_name = st.text_input("Client / Company Name *", placeholder="Type any client name")
-                inv_date = st.date_input("Invoice Date", value=date.today())
-                due_days = st.number_input("Due in (days)", min_value=0, value=30)
-            with c2:
-                related_quote = st.selectbox("Link to Quotation (optional)", list(quote_options.keys()))
-                amount = st.number_input("Invoice Amount (M)", min_value=0.0, step=100.0, format="%.2f")
-                amount_paid = st.number_input("Amount already paid (M)", min_value=0.0, step=50.0, format="%.2f")
+        c1, c2 = st.columns(2)
+        with c1:
+            client_name = st.text_input("Client / Company Name *", placeholder="Type any client name", key="inv_client")
+            inv_date = st.date_input("Invoice Date", value=date.today(), key="inv_date")
+            due_days = st.number_input("Due in (days)", min_value=0, value=30, key="inv_due")
+        with c2:
+            related_quote = st.selectbox("Link to Quotation (optional)", list(quote_options.keys()), key="inv_quote")
+            status = st.selectbox("Status", ["Unpaid", "Partial", "Paid", "Overdue", "Cancelled"], key="inv_status")
 
-            description = st.text_area(
-                "Cost breakdown * (one line per item)",
-                height=140,
-                placeholder="INVPG01 to INVPG04 | 4 | 4590\nINVPG05 to INVPG06 | 2 | 2770"
-            )
-            st.caption("Format: Description | Qty | Amount   (one item per line)")
-            status = st.selectbox("Status", ["Unpaid", "Partial", "Paid", "Overdue", "Cancelled"])
+        # Extendable cost breakdown table
+        st.markdown("""
+        <div style="background:#1a1a1a; border:1px solid #f5a62355; border-radius:10px; padding:10px 12px; margin:10px 0 6px 0;">
+            <p style="color:#f5a623; font-weight:700; margin:0; letter-spacing:1px; font-size:13px;">
+                DESCRIPTION &nbsp;&nbsp;|&nbsp;&nbsp; QTY &nbsp;&nbsp;|&nbsp;&nbsp; AMOUNT (M)
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-            if st.form_submit_button("Create Invoice", type="primary"):
-                if not description.strip() or not client_name.strip():
-                    st.error("Client name and description are required.")
+        if "inv_lines" not in st.session_state:
+            st.session_state.inv_lines = pd.DataFrame({
+                "DESCRIPTION": ["", "", ""],
+                "QTY": [None, None, None],
+                "AMOUNT (M)": [None, None, None],
+            })
+
+        edited_inv = st.data_editor(
+            st.session_state.inv_lines,
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key="inv_line_editor",
+            column_config={
+                "DESCRIPTION": st.column_config.TextColumn("DESCRIPTION", width="large"),
+                "QTY": st.column_config.NumberColumn("QTY", min_value=0, step=1, format="%d"),
+                "AMOUNT (M)": st.column_config.NumberColumn("AMOUNT (M)", min_value=0.0, step=50.0, format="%.2f"),
+            }
+        )
+        st.session_state.inv_lines = edited_inv
+
+        # Auto total from table
+        try:
+            auto_total = float(pd.to_numeric(edited_inv["AMOUNT (M)"], errors="coerce").fillna(0).sum())
+        except Exception:
+            auto_total = 0.0
+        st.metric("Total from table", money(auto_total))
+
+        if st.button("Create Invoice", type="primary", use_container_width=True):
+            if not client_name.strip():
+                st.error("Client name is required.")
+            else:
+                # Build description lines for PDF
+                lines = []
+                for _, r in edited_inv.iterrows():
+                    desc = str(r.get("DESCRIPTION") or "").strip()
+                    if not desc:
+                        continue
+                    qty = r.get("QTY")
+                    amt = r.get("AMOUNT (M)")
+                    qty_s = "" if pd.isna(qty) else str(int(qty))
+                    amt_s = "0" if pd.isna(amt) else str(float(amt))
+                    lines.append(f"{desc} | {qty_s} | {amt_s}")
+                description = "\n".join(lines) if lines else "Transport services"
+                total_amount = auto_total if auto_total > 0 else 0.0
+
+                year = date.today().year
+                last = query_df("SELECT invoice_number FROM invoices WHERE invoice_number LIKE ? ORDER BY id DESC LIMIT 1",
+                                (f"INV-{year}-%",))
+                if last.empty:
+                    num = 1
                 else:
-                    year = date.today().year
-                    last = query_df("SELECT invoice_number FROM invoices WHERE invoice_number LIKE ? ORDER BY id DESC LIMIT 1",
-                                    (f"INV-{year}-%",))
-                    if last.empty:
+                    try:
+                        num = int(last.iloc[0]['invoice_number'].split("-")[-1]) + 1
+                    except Exception:
                         num = 1
-                    else:
-                        try:
-                            num = int(last.iloc[0]['invoice_number'].split("-")[-1]) + 1
-                        except:
-                            num = 1
-                    inv_number = f"INV-{year}-{num:04d}"
-                    due_date = (inv_date + timedelta(days=int(due_days))).isoformat()
-                    qid = quote_options[related_quote]
+                inv_number = f"INV-{year}-{num:04d}"
+                due_date = (inv_date + timedelta(days=int(due_days))).isoformat()
+                qid = quote_options[related_quote]
 
-                    execute("""
-                        INSERT INTO invoices (invoice_number, client_id, client_name, invoice_date, due_date,
-                                              description, amount, amount_paid, status, related_quote_id, notes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (inv_number, None, client_name.strip(), inv_date.isoformat(), due_date,
-                          description, amount, amount_paid, status, qid, notes))
-                    st.success(f"Invoice {inv_number} created!")
-                    st.rerun()
+                execute("""
+                    INSERT INTO invoices (invoice_number, client_id, client_name, invoice_date, due_date,
+                                          description, amount, amount_paid, status, related_quote_id, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (inv_number, None, client_name.strip(), inv_date.isoformat(), due_date,
+                      description, total_amount, 0.0, status, qid, ""))
+                st.session_state.inv_lines = pd.DataFrame({
+                    "DESCRIPTION": ["", "", ""],
+                    "QTY": [None, None, None],
+                    "AMOUNT (M)": [None, None, None],
+                })
+                st.success(f"Invoice {inv_number} created!")
+                st.rerun()
 
     st.subheader("All Invoices")
     idf = query_df("""
