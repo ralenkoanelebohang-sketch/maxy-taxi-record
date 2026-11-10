@@ -474,19 +474,18 @@ def generate_invoice_pdf(invoice, client=None):
             elements.append(Paragraph(f"TIN: {client['tin']}", normal))
     elements.append(Spacer(1, 5*mm))
 
-    # Cost breakdown table: Date | Description | Amount
+    # Cost breakdown table: DESCRIPTION | QTY | AMOUNT (matches preferred layout)
     elements.append(Paragraph("<b>COST BREAKDOWN</b>", heading))
     desc = invoice.get('description') or "Transport services"
     amount = float(invoice.get('amount') or 0)
-    inv_date = invoice.get('invoice_date') or ""
 
-    # Parse description lines if user enters multiple lines as breakdown
-    # Format expected: each line can be "date | description | amount" or free text
+    # Format: Description | Qty | Amount   (one item per line)
+    # Also accepts: Description | Amount  (qty blank)
     lines = [ln.strip() for ln in str(desc).split("\n") if ln.strip()]
     items_data = [
-        [Paragraph("<b>Date</b>", bold),
-         Paragraph("<b>Description</b>", bold),
-         Paragraph("<b>Amount (M)</b>", bold)],
+        [Paragraph("<b>DESCRIPTION</b>", bold),
+         Paragraph("<b>QTY</b>", bold),
+         Paragraph("<b>AMOUNT</b>", bold)],
     ]
 
     parsed_total = 0.0
@@ -495,6 +494,7 @@ def generate_invoice_pdf(invoice, client=None):
         parts = [p.strip() for p in ln.split("|")]
         if len(parts) >= 3:
             has_breakdown = True
+            qty = parts[1]
             try:
                 amt = float(parts[2].replace("M", "").replace(",", "").strip())
             except Exception:
@@ -502,45 +502,57 @@ def generate_invoice_pdf(invoice, client=None):
             parsed_total += amt
             items_data.append([
                 Paragraph(parts[0], normal),
-                Paragraph(parts[1], normal),
-                Paragraph(f"{amt:,.2f}", right),
+                Paragraph(qty, normal),
+                Paragraph(f"M{amt:,.2f}", right),
+            ])
+        elif len(parts) == 2:
+            has_breakdown = True
+            try:
+                amt = float(parts[1].replace("M", "").replace(",", "").strip())
+            except Exception:
+                amt = 0.0
+            parsed_total += amt
+            items_data.append([
+                Paragraph(parts[0], normal),
+                Paragraph("", normal),
+                Paragraph(f"M{amt:,.2f}", right),
             ])
         else:
             items_data.append([
-                Paragraph(inv_date, normal),
                 Paragraph(ln, normal),
+                Paragraph("", normal),
                 Paragraph("", right),
             ])
 
-    # Extra empty rows so table is longer
-    for _ in range(6):
+    # Extra empty rows so table extends down the page
+    for _ in range(5):
         items_data.append([Paragraph("<br/>", normal), Paragraph("", normal), Paragraph("", right)])
 
-    # Total row
     total_amount = parsed_total if has_breakdown and parsed_total > 0 else amount
     items_data.append([
         Paragraph("", normal),
         Paragraph("<b>TOTAL</b>", bold),
-        Paragraph(f"<b>M {total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=11)),
+        Paragraph(f"<b>M{total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=11)),
     ])
 
-    items_table = Table(items_data, colWidths=[35*mm, 100*mm, 45*mm])
+    items_table = Table(items_data, colWidths=[100*mm, 30*mm, 50*mm])
     items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5a623")),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5e6d3")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
+        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
         ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-        ('TOPPADDING', (0, 0), (-1, 0), 8),
-        ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor("#fffaf0")),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#fff3d6")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('TOPPADDING', (0, 0), (-1, 0), 10),
+        ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor("#fdf8f3")),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor("#fdf8f3")),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 1), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-        ('LINEABOVE', (0, -1), (-1, -1), 1.5, colors.HexColor("#f5a623")),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 1), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+        ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor("#e8d5c0")),
+        ('LINEABOVE', (1, -1), (-1, -1), 1, colors.HexColor("#cccccc")),
     ]))
     elements.append(items_table)
     elements.append(Spacer(1, 8*mm))
@@ -929,17 +941,31 @@ def page_records():
 
     filtered = filtered.sort_values(['record_date', 'vehicle_name'])
 
-    # Show by month with date separators
-    if sel_month == "All months":
-        for y, m, label in FY_MONTHS:
-            mdf = filtered[(filtered['record_date'].dt.year == y) & (filtered['record_date'].dt.month == m)]
-            if mdf.empty:
-                continue
-            st.markdown(f"### {label}")
-            show_cols = ['record_date', 'vehicle_name', 'cash_collected', 'fuel_cost', 'fuel_topup',
+    # Group by date with coloured borders for same-day records
+    if filtered.empty:
+        st.info("No records for this filter.")
+    else:
+        # Alternate yellow / red borders for consecutive date groups
+        date_groups = list(filtered.groupby(filtered['record_date'].dt.date, sort=True))
+        border_colors = ["#f5a623", "#e74c3c"]  # yellow, red
+
+        for i, (day, gdf) in enumerate(date_groups):
+            color = border_colors[i % 2]
+            day_str = day.strftime("%Y-%m-%d") if hasattr(day, 'strftime') else str(day)
+            count = len(gdf)
+
+            st.markdown(f"""
+            <div style="border: 2px solid {color}; border-radius: 10px; padding: 10px 12px;
+                        margin-bottom: 12px; background: #141414;">
+                <p style="color:{color}; font-weight:700; margin:0 0 6px 0; font-size:13px;">
+                    📅 {day_str}  ·  {count} vehicle{"s" if count != 1 else ""}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            show_cols = ['vehicle_name', 'cash_collected', 'fuel_cost', 'fuel_topup',
                          'driver_compensation', 'credits', 'other_expenses', 'trips', 'driver_name']
-            display = mdf[[c for c in show_cols if c in mdf.columns]].copy()
-            display['record_date'] = display['record_date'].dt.strftime('%Y-%m-%d')
+            display = gdf[[c for c in show_cols if c in gdf.columns]].copy()
             st.dataframe(
                 display.style.format({
                     'cash_collected': 'M {:,.0f}',
@@ -952,31 +978,7 @@ def page_records():
                 use_container_width=True,
                 hide_index=True
             )
-            st.markdown(
-                f"**{label} totals:** Cash {money(mdf['cash_collected'].sum())} | "
-                f"Credits {money(mdf['credits'].sum())} | "
-                f"Fuel {money(mdf['fuel_cost'].sum())} | "
-                f"Top-up {money(mdf['fuel_topup'].sum())} | "
-                f"Driver Comp {money(mdf['driver_compensation'].sum())}"
-            )
-            st.markdown("---")
-    else:
-        show_cols = ['record_date', 'vehicle_name', 'cash_collected', 'fuel_cost', 'fuel_topup',
-                     'driver_compensation', 'credits', 'other_expenses', 'trips', 'driver_name']
-        display = filtered[[c for c in show_cols if c in filtered.columns]].copy()
-        display['record_date'] = display['record_date'].dt.strftime('%Y-%m-%d')
-        st.dataframe(
-            display.style.format({
-                'cash_collected': 'M {:,.0f}',
-                'fuel_cost': 'M {:,.0f}',
-                'fuel_topup': 'M {:,.0f}',
-                'driver_compensation': 'M {:,.0f}',
-                'credits': 'M {:,.0f}',
-                'other_expenses': 'M {:,.0f}',
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
+
         st.markdown(
             f"**Totals:** Cash {money(filtered['cash_collected'].sum())} | "
             f"Credits {money(filtered['credits'].sum())} | "
@@ -985,31 +987,69 @@ def page_records():
             f"Driver Comp {money(filtered['driver_compensation'].sum())}"
         )
 
-    # ===== DELETE RECORD =====
+    # ===== EDIT / DELETE RECORD =====
     st.markdown("---")
-    st.subheader("Delete a Record")
-    st.caption("Select a record if you made a mistake and want to remove it.")
+    st.subheader("Edit or Delete a Record")
+    st.caption("Select a record to correct a mistake or remove it.")
 
     if not filtered.empty:
         options = []
         id_map = {}
+        row_map = {}
         for _, row in filtered.iterrows():
             dstr = row['record_date'].strftime('%Y-%m-%d') if hasattr(row['record_date'], 'strftime') else str(row['record_date'])
             label = f"ID {row['id']} | {dstr} | {row['vehicle_name']} | Cash: M{row['cash_collected']:,.0f} | Fuel: M{row['fuel_cost']:,.0f}"
             options.append(label)
             id_map[label] = int(row['id'])
+            row_map[label] = row
 
-        selected_label = st.selectbox("Select record to delete", options)
+        selected_label = st.selectbox("Select record", options)
         selected_id = id_map[selected_label]
+        selected_row = row_map[selected_label]
 
-        col_del1, col_del2 = st.columns([1, 3])
-        with col_del1:
+        col_edit, col_del = st.columns(2)
+
+        with col_edit:
+            with st.expander("Edit Record", expanded=False):
+                with st.form("edit_record_form"):
+                    e_cash = st.number_input("Cash Collected (M)", value=float(selected_row.get('cash_collected') or 0), min_value=0.0, step=50.0, format="%.2f")
+                    e_fuel = st.number_input("Fuel Cost (M)", value=float(selected_row.get('fuel_cost') or 0), min_value=0.0, step=10.0, format="%.2f")
+                    e_topup = st.number_input("Fuel Top-up (M)", value=float(selected_row.get('fuel_topup') or 0), min_value=0.0, step=10.0, format="%.2f")
+                    e_dcomp = st.number_input("Driver Comp (M)", value=float(selected_row.get('driver_compensation') or 40), min_value=0.0, step=5.0, format="%.2f")
+                    e_trips = st.number_input("Trips", value=int(selected_row.get('trips') or 0), min_value=0, step=1)
+                    e_other = st.number_input("Other Expenses (M)", value=float(selected_row.get('other_expenses') or 0), min_value=0.0, step=10.0, format="%.2f")
+                    e_alliance = st.number_input("Alliance (M)", value=float(selected_row.get('credit_alliance') or 0), min_value=0.0, step=50.0, format="%.2f")
+                    e_lehae = st.number_input("Lehae (M)", value=float(selected_row.get('credit_lehae') or 0), min_value=0.0, step=50.0, format="%.2f")
+                    e_wv = st.number_input("World Vision (M)", value=float(selected_row.get('credit_worldvision') or 0), min_value=0.0, step=50.0, format="%.2f")
+                    e_wales = st.number_input("Waleslink (M)", value=float(selected_row.get('credit_waleslink') or 0), min_value=0.0, step=50.0, format="%.2f")
+                    e_lnl = st.number_input("LNLVIP (M)", value=float(selected_row.get('credit_lnlvip') or 0), min_value=0.0, step=50.0, format="%.2f")
+                    e_driver = st.text_input("Driver name", value=str(selected_row.get('driver_name') or ""))
+                    e_notes = st.text_area("Notes", value=str(selected_row.get('notes') or ""))
+
+                    if st.form_submit_button("Save Changes", type="primary"):
+                        execute("""
+                            UPDATE daily_records SET
+                                cash_collected=?, fuel_cost=?, fuel_topup=?, driver_compensation=?,
+                                trips=?, other_expenses=?,
+                                credit_alliance=?, credit_lehae=?, credit_worldvision=?,
+                                credit_waleslink=?, credit_lnlvip=?,
+                                driver_name=?, notes=?
+                            WHERE id=?
+                        """, (
+                            e_cash, e_fuel, e_topup, e_dcomp, e_trips, e_other,
+                            e_alliance, e_lehae, e_wv, e_wales, e_lnl,
+                            e_driver, e_notes, selected_id
+                        ))
+                        st.success(f"Record ID {selected_id} updated.")
+                        st.rerun()
+
+        with col_del:
+            st.markdown("**Delete Record**")
+            st.caption("This cannot be undone.")
             if st.button("Delete Record", type="primary"):
                 execute("DELETE FROM daily_records WHERE id = ?", (selected_id,))
                 st.success(f"Record ID {selected_id} has been deleted.")
                 st.rerun()
-        with col_del2:
-            st.warning("This cannot be undone.")
 
     st.markdown("---")
     csv = filtered.to_csv(index=False).encode('utf-8')
@@ -1213,9 +1253,9 @@ def page_invoices():
             description = st.text_area(
                 "Cost breakdown * (one line per item)",
                 height=140,
-                placeholder="04 Oct | Local transport for 4 days | 600\n09 Oct | Trip to Senqu | 900"
+                placeholder="INVPG01 to INVPG04 | 4 | 4590\nINVPG05 to INVPG06 | 2 | 2770"
             )
-            st.caption("Format: Date | Description | Amount   (one item per line)")
+            st.caption("Format: Description | Qty | Amount   (one item per line)")
             status = st.selectbox("Status", ["Unpaid", "Partial", "Paid", "Overdue", "Cancelled"])
 
             if st.form_submit_button("Create Invoice", type="primary"):
