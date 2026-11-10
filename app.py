@@ -230,12 +230,15 @@ def check_password():
                     border: 1px solid #f5a62355; border-radius: 16px;
                     padding: 28px 22px 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.55);">
         """, unsafe_allow_html=True)
+        logo_dark = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
+        logo_trans = os.path.join(os.path.dirname(__file__), "logo_transparent.png")
         logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
-        logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
-        if os.path.exists(logo_clean):
+        if os.path.exists(logo_dark):
+            st.image(logo_dark, use_container_width=True)
+        elif os.path.exists(logo_trans):
+            st.image(logo_trans, use_container_width=True)
+        elif os.path.exists(logo_clean):
             st.image(logo_clean, use_container_width=True)
-        elif os.path.exists(logo_icon):
-            st.image(logo_icon, use_container_width=True)
         st.markdown("""
             <p style='text-align:center; color:#f5a623; font-size:11px; letter-spacing:2.5px;
                        margin: 10px 0 2px 0; font-weight:600;'>SAFE • QUICK • RELIABLE</p>
@@ -709,14 +712,17 @@ def prepare_records_df():
 # ---------------------- PAGES ----------------------
 def page_dashboard():
     # Logo header
+    logo_dark = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
+    logo_trans = os.path.join(os.path.dirname(__file__), "logo_transparent.png")
     logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
-    logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
     col_l, col_t = st.columns([1, 3])
     with col_l:
-        if os.path.exists(logo_clean):
+        if os.path.exists(logo_dark):
+            st.image(logo_dark, use_container_width=True)
+        elif os.path.exists(logo_trans):
+            st.image(logo_trans, use_container_width=True)
+        elif os.path.exists(logo_clean):
             st.image(logo_clean, use_container_width=True)
-        elif os.path.exists(logo_icon):
-            st.image(logo_icon, use_container_width=True)
     with col_t:
         st.header("Dashboard")
         st.caption("Financial Year 2026 – 2027 (June to May)")
@@ -1313,12 +1319,15 @@ def main():
     <div style="border: 2px solid #f5a623; border-radius: 12px; padding: 14px; margin-bottom: 12px; background: #111;">
     """, unsafe_allow_html=True)
 
+    logo_dark = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
+    logo_trans = os.path.join(os.path.dirname(__file__), "logo_transparent.png")
     logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
-    logo_icon = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
-    if os.path.exists(logo_clean):
+    if os.path.exists(logo_dark):
+        st.sidebar.image(logo_dark, use_container_width=True)
+    elif os.path.exists(logo_trans):
+        st.sidebar.image(logo_trans, use_container_width=True)
+    elif os.path.exists(logo_clean):
         st.sidebar.image(logo_clean, use_container_width=True)
-    elif os.path.exists(logo_icon):
-        st.sidebar.image(logo_icon, use_container_width=True)
     else:
         st.sidebar.markdown("<h3 style='color:#f5a623; text-align:center; margin:0;'>MAXY TAXI</h3>", unsafe_allow_html=True)
 
