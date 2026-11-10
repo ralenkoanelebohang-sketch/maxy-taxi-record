@@ -53,11 +53,36 @@ st.markdown("""
         border-right: 2px solid #f5a62333;
     }
     section[data-testid="stSidebar"] .stRadio label {
-        color: #e0e0e0 !important;
+        color: #c8c8c8 !important;
         font-weight: 500;
+        padding: 8px 12px !important;
+        border-radius: 10px !important;
+        margin: 2px 0 !important;
     }
     section[data-testid="stSidebar"] .stRadio label:hover {
         color: #f5a623 !important;
+        background: #f5a62315 !important;
+    }
+    /* Selected menu item - yellow glow like screenshot */
+    section[data-testid="stSidebar"] .stRadio [data-testid="stMarkdownContainer"] p {
+        font-size: 15px !important;
+    }
+    div[role="radiogroup"] label[data-baseweb="radio"] {
+        background: transparent;
+        border-radius: 10px;
+        padding: 6px 10px;
+        margin: 3px 0;
+    }
+    /* Active/selected styling */
+    section[data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked) {
+        background: #f5a62318 !important;
+        border: 1px solid #f5a62388 !important;
+        box-shadow: 0 0 12px #f5a62344;
+        border-radius: 10px !important;
+    }
+    section[data-testid="stSidebar"] label[data-baseweb="radio"]:has(input:checked) p {
+        color: #f5a623 !important;
+        font-weight: 600 !important;
     }
 
     /* ===== METRICS (cards) ===== */
@@ -552,16 +577,15 @@ def generate_quotation_pdf(quote, client=None):
                                                            fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
     elements.append(Spacer(1, 3*mm))
 
+    # Only Quote No and Date (no Status / Valid Until)
     meta_data = [
         [Paragraph(f"<b>Quote No:</b> {quote['quote_number']}", normal),
          Paragraph(f"<b>Date:</b> {quote['quote_date']}", right)],
-        [Paragraph(f"<b>Status:</b> {quote['status']}", normal),
-         Paragraph(f"<b>Valid Until:</b> {quote['valid_until']}", right)],
     ]
     meta_table = Table(meta_data, colWidths=[95*mm, 85*mm])
     meta_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('BOTTOMPADDING', (0, 0), (-1, -1), 2)]))
     elements.append(meta_table)
-    elements.append(Spacer(1, 4*mm))
+    elements.append(Spacer(1, 5*mm))
 
     elements.append(Paragraph("<b>PREPARED FOR</b>", heading))
     client_name = quote.get('client_name') or (client['name'] if client else "Prospective Client")
@@ -573,40 +597,43 @@ def generate_quotation_pdf(quote, client=None):
             elements.append(Paragraph(f"Phone: {client['phone']}", normal))
         if client.get('address'):
             elements.append(Paragraph(client['address'], normal))
-    elements.append(Spacer(1, 4*mm))
+    elements.append(Spacer(1, 5*mm))
 
     elements.append(Paragraph("<b>DESCRIPTION OF SERVICES</b>", heading))
     desc = quote.get('description') or "Transport services"
     amount = float(quote.get('amount') or 0)
 
+    # Longer description table toward bottom of page
     items_data = [
         [Paragraph("<b>Description</b>", bold), Paragraph("<b>Amount (M)</b>", bold)],
         [Paragraph(desc.replace("\n", "<br/>"), normal), Paragraph(f"{amount:,.2f}", right)],
+        [Paragraph("<br/><br/><br/><br/><br/><br/><br/><br/>", normal), Paragraph("", right)],
     ]
     items_table = Table(items_data, colWidths=[130*mm, 50*mm])
     items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2980b9")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5a623")),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-        ('TOPPADDING', (0, 0), (-1, 0), 6),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#eaf2f8")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#dddddd")),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#fffaf0")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 1), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 1), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 12),
+        ('MIN', (0, 1), (-1, 1), 80*mm),
     ]))
     elements.append(items_table)
-    elements.append(Spacer(1, 5*mm))
+    elements.append(Spacer(1, 8*mm))
 
     total_data = [[Paragraph("<b>TOTAL QUOTED</b>", ParagraphStyle('T', parent=normal, fontSize=11)),
                    Paragraph(f"<b>M {amount:,.2f}</b>", ParagraphStyle('TR', parent=right, fontSize=11))]]
     total_table = Table(total_data, colWidths=[130*mm, 50*mm])
     total_table.setStyle(TableStyle([
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('LINEABOVE', (0, 0), (-1, 0), 1, colors.HexColor("#2980b9")),
+        ('LINEABOVE', (0, 0), (-1, 0), 1.5, colors.HexColor("#f5a623")),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
     ]))
     elements.append(total_table)
@@ -743,7 +770,7 @@ def page_dashboard():
         c1.metric("Total Cash", money(cash))
         c2.metric("Total Credits", money(credits))
         c3.metric("Total Revenue", money(revenue))
-        c4.metric("Net", money(net))
+        c4.metric("Total Expenses", money(expenses))
 
         c5, c6, c7, c8 = st.columns(4)
         c5.metric("Fuel Cost", money(fuel))
@@ -751,7 +778,9 @@ def page_dashboard():
         c7.metric("Driver Comp", money(driver_comp))
         c8.metric("Other Expenses", money(other))
 
-        st.metric("Trips", trips)
+        c9, c10, _ = st.columns(3)
+        c9.metric("Trips", trips)
+        c10.metric("Net", money(net))
 
         # Per vehicle for selected month
         if not mdf.empty:
@@ -1311,7 +1340,19 @@ def main():
         "Backup / Export": page_export,
     }
 
-    choice = st.sidebar.radio("Menu", list(pages.keys()), label_visibility="collapsed")
+    # Icon labels to match professional sidebar design
+    menu_labels = {
+        "Dashboard": "Dashboard",
+        "Daily Entry": "Daily Entry",
+        "Records": "Records",
+        "Fleet": "Fleet",
+        "Clients": "Clients",
+        "Quotations": "Quotations",
+        "Invoices": "Invoices",
+        "Backup / Export": "Backup / Export",
+    }
+    choice = st.sidebar.radio("Menu", list(pages.keys()), label_visibility="collapsed",
+                              format_func=lambda x: menu_labels.get(x, x))
 
     st.sidebar.markdown("""
     <div style="border: 2px solid #f5a623; border-radius: 10px; padding: 12px; margin-top: 14px; background: #111;">
