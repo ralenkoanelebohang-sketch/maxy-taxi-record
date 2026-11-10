@@ -418,14 +418,14 @@ def generate_invoice_pdf(invoice, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9, leading=12)
 
-    # Compact letterhead at upper edge
+    # Exact letterhead banner (logo left + contacts right) at top of A4
     header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(header_path):
-        header = Image(header_path, width=186*mm, height=28*mm)
+        header = Image(header_path, width=186*mm, height=40*mm)
         header.hAlign = 'CENTER'
         elements.append(header)
-        elements.append(Spacer(1, 1*mm))
+        elements.append(Spacer(1, 3*mm))
     elif os.path.exists(logo_path):
         logo = Image(logo_path, width=70*mm, height=22*mm)
         logo.hAlign = 'CENTER'
@@ -434,8 +434,6 @@ def generate_invoice_pdf(invoice, client=None):
     else:
         elements.append(Paragraph("MAXY TAXI", title_style))
         elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
-
-    elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#f5a623"), spaceAfter=2*mm))
 
     elements.append(Paragraph("INVOICE", ParagraphStyle('InvTitle', parent=styles['Heading1'],
                                                          fontSize=14, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
@@ -543,10 +541,7 @@ def generate_invoice_pdf(invoice, client=None):
         ('RIGHTPADDING', (0, 0), (-1, -1), 6),
         ('TOPPADDING', (0, 1), (-1, -1), 5),
         ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
-        ('LINEBELOW', (0, 0), (-1, 0), 1.5, colors.HexColor("#f5a623")),
-        ('LINEBELOW', (0, 1), (-1, -2), 0.3, colors.HexColor("#dddddd")),
-        ('LINEABOVE', (1, -1), (-1, -1), 1.5, colors.HexColor("#f5a623")),
-        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        # No grid lines — clean professional look
     ]))
     elements.append(items_table)
     elements.append(Spacer(1, 5*mm))
@@ -586,14 +581,14 @@ def generate_quotation_pdf(quote, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9)
 
-    # Compact letterhead at upper edge
+    # Exact letterhead banner (logo left + contacts right) at top of A4
     header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(header_path):
-        header = Image(header_path, width=186*mm, height=28*mm)
+        header = Image(header_path, width=186*mm, height=40*mm)
         header.hAlign = 'CENTER'
         elements.append(header)
-        elements.append(Spacer(1, 1*mm))
+        elements.append(Spacer(1, 3*mm))
     elif os.path.exists(logo_path):
         logo = Image(logo_path, width=70*mm, height=22*mm)
         logo.hAlign = 'CENTER'
@@ -603,11 +598,9 @@ def generate_quotation_pdf(quote, client=None):
         elements.append(Paragraph("MAXY TAXI", title_style))
         elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
 
-    elements.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#f5a623"), spaceAfter=4*mm))
-
     elements.append(Paragraph("QUOTATION", ParagraphStyle('QTitle', parent=styles['Heading1'],
-                                                           fontSize=16, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
-    elements.append(Spacer(1, 3*mm))
+                                                           fontSize=14, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
+    elements.append(Spacer(1, 2*mm))
 
     # Only Quote No and Date (no Status / Valid Until)
     meta_data = [
@@ -698,10 +691,7 @@ def generate_quotation_pdf(quote, client=None):
         ('RIGHTPADDING', (0, 0), (-1, -1), 6),
         ('TOPPADDING', (0, 1), (-1, -1), 5),
         ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
-        ('LINEBELOW', (0, 0), (-1, 0), 1.5, colors.HexColor("#f5a623")),
-        ('LINEBELOW', (0, 1), (-1, -2), 0.3, colors.HexColor("#dddddd")),
-        ('LINEABOVE', (1, -1), (-1, -1), 1.5, colors.HexColor("#f5a623")),
-        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor("#cccccc")),
+        # No grid lines — clean professional look
     ]))
     elements.append(items_table)
     elements.append(Spacer(1, 5*mm))
