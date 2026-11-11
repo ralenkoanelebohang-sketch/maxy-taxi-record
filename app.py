@@ -399,7 +399,7 @@ def generate_invoice_pdf(invoice, client=None):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
                             rightMargin=12*mm, leftMargin=12*mm,
-                            topMargin=8*mm, bottomMargin=10*mm)
+                            topMargin=5*mm, bottomMargin=22*mm)
     styles = getSampleStyleSheet()
     elements = []
 
@@ -418,14 +418,14 @@ def generate_invoice_pdf(invoice, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9, leading=12)
 
-    # Exact letterhead banner (logo left + contacts right) at top of A4
+    # Letterhead at top edge — no black border lines
     header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(header_path):
-        header = Image(header_path, width=186*mm, height=40*mm)
+        header = Image(header_path, width=186*mm, height=36*mm)
         header.hAlign = 'CENTER'
         elements.append(header)
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 4*mm))
     elif os.path.exists(logo_path):
         logo = Image(logo_path, width=70*mm, height=22*mm)
         logo.hAlign = 'CENTER'
@@ -436,7 +436,8 @@ def generate_invoice_pdf(invoice, client=None):
         elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
 
     elements.append(Paragraph("INVOICE", ParagraphStyle('InvTitle', parent=styles['Heading1'],
-                                                         fontSize=14, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
+                                                         fontSize=13, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
+                                                         spaceAfter=2*mm)))
     elements.append(Spacer(1, 2*mm))
 
     # Meta info (Invoice No + Date only)
@@ -551,16 +552,23 @@ def generate_invoice_pdf(invoice, client=None):
     bank_style = ParagraphStyle('Bank', parent=normal, fontSize=9, leading=12)
     elements.append(Paragraph("<b>Bank:</b> Postbank &nbsp;&nbsp; <b>Account No:</b> 1017866800015 &nbsp;&nbsp; <b>Branch:</b> 500100", bank_style))
     elements.append(Paragraph("<b>Account Name:</b> Maxy Taxi Transport", bank_style))
-    elements.append(Spacer(1, 6*mm))
 
-    elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#f5a623")))
-    elements.append(Spacer(1, 3*mm))
-    elements.append(Paragraph("Thank you for your Business",
-                              ParagraphStyle('Thanks', parent=styles['Normal'], fontSize=11,
-                                             alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
-                                             fontName='Helvetica-Bold')))
+    # Footer fixed at the very bottom of every page
+    def _draw_inv_footer(canvas, doc_):
+        canvas.saveState()
+        page_w, _ = A4
+        canvas.setStrokeColor(colors.HexColor("#f5a623"))
+        canvas.setLineWidth(0.8)
+        canvas.line(12*mm, 16*mm, page_w - 12*mm, 16*mm)
+        canvas.setFont('Helvetica-Bold', 10)
+        canvas.setFillColor(colors.HexColor("#1a1a1a"))
+        canvas.drawCentredString(page_w/2, 10*mm, "Thank you for your Business")
+        canvas.setFont('Helvetica', 8)
+        canvas.setFillColor(colors.HexColor("#555555"))
+        canvas.drawCentredString(page_w/2, 5.5*mm, "SAFE  •  QUICK  •  RELIABLE")
+        canvas.restoreState()
 
-    doc.build(elements)
+    doc.build(elements, onFirstPage=_draw_inv_footer, onLaterPages=_draw_inv_footer)
     buffer.seek(0)
     return buffer
 
@@ -568,7 +576,7 @@ def generate_quotation_pdf(quote, client=None):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
                             rightMargin=12*mm, leftMargin=12*mm,
-                            topMargin=8*mm, bottomMargin=10*mm)
+                            topMargin=5*mm, bottomMargin=22*mm)
     styles = getSampleStyleSheet()
     elements = []
 
@@ -581,14 +589,14 @@ def generate_quotation_pdf(quote, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9)
 
-    # Exact letterhead banner (logo left + contacts right) at top of A4
+    # Letterhead at top edge — no black border lines
     header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(header_path):
-        header = Image(header_path, width=186*mm, height=40*mm)
+        header = Image(header_path, width=186*mm, height=36*mm)
         header.hAlign = 'CENTER'
         elements.append(header)
-        elements.append(Spacer(1, 3*mm))
+        elements.append(Spacer(1, 4*mm))
     elif os.path.exists(logo_path):
         logo = Image(logo_path, width=70*mm, height=22*mm)
         logo.hAlign = 'CENTER'
@@ -599,7 +607,8 @@ def generate_quotation_pdf(quote, client=None):
         elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
 
     elements.append(Paragraph("QUOTATION", ParagraphStyle('QTitle', parent=styles['Heading1'],
-                                                           fontSize=14, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"))))
+                                                           fontSize=13, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
+                                                           spaceAfter=2*mm)))
     elements.append(Spacer(1, 2*mm))
 
     # Only Quote No and Date (no Status / Valid Until)
@@ -697,18 +706,26 @@ def generate_quotation_pdf(quote, client=None):
     elements.append(Spacer(1, 5*mm))
 
     if quote.get('notes'):
-        elements.append(Spacer(1, 5*mm))
         elements.append(Paragraph("<b>Notes / Terms</b>", heading))
         elements.append(Paragraph(quote['notes'], normal))
 
-    elements.append(Spacer(1, 10*mm))
-    elements.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
-    elements.append(Paragraph("This quotation is valid until the date shown. Prices are in Lesotho Loti (M).",
-                              ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=colors.grey)))
-    elements.append(Paragraph("Thank you for considering Maxy Taxi Transport.",
-                              ParagraphStyle('Footer2', parent=styles['Normal'], fontSize=8, alignment=TA_CENTER, textColor=colors.grey)))
+    # Footer fixed at the very bottom of every page (never mid-page)
+    def _draw_quote_footer(canvas, doc_):
+        canvas.saveState()
+        page_w, _ = A4
+        # Soft gold line above footer
+        canvas.setStrokeColor(colors.HexColor("#f5a623"))
+        canvas.setLineWidth(0.8)
+        canvas.line(12*mm, 16*mm, page_w - 12*mm, 16*mm)
+        canvas.setFont('Helvetica', 8)
+        canvas.setFillColor(colors.HexColor("#555555"))
+        canvas.drawCentredString(page_w/2, 10*mm, "This quotation is valid until the date shown. Prices are in Lesotho Loti (M).")
+        canvas.setFont('Helvetica-Bold', 9)
+        canvas.setFillColor(colors.HexColor("#1a1a1a"))
+        canvas.drawCentredString(page_w/2, 5.5*mm, "Thank you for considering Maxy Taxi Transport.")
+        canvas.restoreState()
 
-    doc.build(elements)
+    doc.build(elements, onFirstPage=_draw_quote_footer, onLaterPages=_draw_quote_footer)
     buffer.seek(0)
     return buffer
 
