@@ -282,51 +282,122 @@ VEHICLES = [
     {"id": 6, "name": "Toyota Alphard", "plate": "A 313 BCM", "type": "Alphard 7-seater"},
 ]
 
-# ---------------------- DATABASE ----------------------
+# Default driver per vehicle (auto-fills on Daily Entry; editable if driver changes car)
+# Update these names anytime — the form will use them, or the last driver saved for that car
+DEFAULT_DRIVERS = {
+    "Honda Fit 1": "",
+    "Honda Fit 2": "",
+    "Honda Fit 3": "",
+    "Honda Fit 4": "",
+    "Honda Fit 5": "",
+    "Toyota Alphard": "",
+}
+
+# ---------------------- DATABASE (SQLite local OR free cloud Postgres) ----------------------
+def _database_url():
+    """Return Postgres URL from Streamlit secrets if configured, else None."""
+    try:
+        url = st.secrets.get("DATABASE_URL", None)
+        if url:
+            return str(url)
+        # Allow nested secret: [postgres] url = "..."
+        if "postgres" in st.secrets and "url" in st.secrets["postgres"]:
+            return str(st.secrets["postgres"]["url"])
+    except Exception:
+        pass
+    return None
+
+
+def using_cloud_db():
+    return _database_url() is not None
+
+
+def _adapt_sql(sql):
+    """Convert SQLite-style ? placeholders to %s for Postgres."""
+    if using_cloud_db():
+        return sql.replace("?", "%s")
+    return sql
+
+
 def get_conn():
+    url = _database_url()
+    if url:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        # Supabase pooler / Postgres
+        conn = psycopg2.connect(url, sslmode="require")
+        conn.autocommit = False
+        return conn
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
+
 def init_db():
     conn = get_conn()
     c = conn.cursor()
+    cloud = using_cloud_db()
 
-    c.execute("""
+    # Compatible DDL for SQLite and Postgres
+    if cloud:
+        id_col = "id SERIAL PRIMARY KEY"
+        real_type = "DOUBLE PRECISION"
+    else:
+        id_col = "id INTEGER PRIMARY KEY AUTOINCREMENT"
+        real_type = "REAL"
+
+    c.execute(f"""
         CREATE TABLE IF NOT EXISTS daily_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {id_col},
             record_date TEXT NOT NULL,
             vehicle_id INTEGER NOT NULL,
             vehicle_name TEXT,
             plate TEXT,
-            cash_collected REAL DEFAULT 0,
-            fuel_cost REAL DEFAULT 0,
-            fuel_topup REAL DEFAULT 0,
+            cash_collected {real_type} DEFAULT 0,
+            fuel_cost {real_type} DEFAULT 0,
+            fuel_topup {real_type} DEFAULT 0,
             trips INTEGER DEFAULT 0,
-            other_expenses REAL DEFAULT 0,
+            other_expenses {real_type} DEFAULT 0,
             expense_notes TEXT,
-            driver_compensation REAL DEFAULT 40.0,
-            credit_alliance REAL DEFAULT 0,
-            credit_lehae REAL DEFAULT 0,
-            credit_worldvision REAL DEFAULT 0,
-            credit_waleslink REAL DEFAULT 0,
-            credit_lnlvip REAL DEFAULT 0,
+            driver_compensation {real_type} DEFAULT 40.0,
+            credit_alliance {real_type} DEFAULT 0,
+            credit_lehae {real_type} DEFAULT 0,
+            credit_worldvision {real_type} DEFAULT 0,
+            credit_waleslink {real_type} DEFAULT 0,
+            credit_lnlvip {real_type} DEFAULT 0,
             driver_name TEXT,
+            airtime {real_type} DEFAULT 10,
+            duty TEXT DEFAULT 'Day',
             notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Add new columns if upgrading existing DB
-    for col in ["credit_alliance", "credit_lehae", "credit_worldvision", "credit_waleslink", "credit_lnlvip",
-                "fuel_topup", "driver_compensation"]:
-        try:
-            c.execute(f"ALTER TABLE daily_records ADD COLUMN {col} REAL DEFAULT 0")
-        except:
-            pass
 
-    c.execute("""
+    # Add columns if missing (upgrade path)
+    for col, default in [
+        ("credit_alliance", "0"), ("credit_lehae", "0"), ("credit_worldvision", "0"),
+        ("credit_waleslink", "0"), ("credit_lnlvip", "0"), ("fuel_topup", "0"),
+        ("driver_compensation", "40"), ("airtime", "10"),
+    ]:
+        try:
+            c.execute(f"ALTER TABLE daily_records ADD COLUMN {col} {real_type} DEFAULT {default}")
+        except Exception:
+            pass
+    try:
+        c.execute("ALTER TABLE daily_records ADD COLUMN duty TEXT DEFAULT 'Day'")
+    except Exception:
+        pass
+    # Ensure airtime/duty exist on brand-new tables created before these fields
+    try:
+        if cloud:
+            c.execute(f"ALTER TABLE daily_records ADD COLUMN IF NOT EXISTS airtime {real_type} DEFAULT 10")
+            c.execute("ALTER TABLE daily_records ADD COLUMN IF NOT EXISTS duty TEXT DEFAULT 'Day'")
+    except Exception:
+        pass
+
+    c.execute(f"""
         CREATE TABLE IF NOT EXISTS clients (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {id_col},
             name TEXT NOT NULL,
             contact_person TEXT,
             phone TEXT,
@@ -338,34 +409,34 @@ def init_db():
         )
     """)
 
-    c.execute("""
+    c.execute(f"""
         CREATE TABLE IF NOT EXISTS quotations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {id_col},
             quote_number TEXT UNIQUE,
             client_id INTEGER,
             client_name TEXT,
             quote_date TEXT,
             valid_until TEXT,
             description TEXT,
-            amount REAL,
-            status TEXT DEFAULT 'Draft',  -- Draft, Sent, Accepted, Rejected, Expired
+            amount {real_type},
+            status TEXT DEFAULT 'Draft',
             notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    c.execute("""
+    c.execute(f"""
         CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {id_col},
             invoice_number TEXT UNIQUE,
             client_id INTEGER,
             client_name TEXT,
             invoice_date TEXT,
             due_date TEXT,
             description TEXT,
-            amount REAL,
-            amount_paid REAL DEFAULT 0,
-            status TEXT DEFAULT 'Unpaid',  -- Unpaid, Partial, Paid, Overdue, Cancelled
+            amount {real_type},
+            amount_paid {real_type} DEFAULT 0,
+            status TEXT DEFAULT 'Unpaid',
             related_quote_id INTEGER,
             notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -377,16 +448,24 @@ def init_db():
 
 def query_df(sql, params=()):
     conn = get_conn()
-    df = pd.read_sql_query(sql, conn, params=params)
-    conn.close()
+    sql = _adapt_sql(sql)
+    try:
+        df = pd.read_sql_query(sql, conn, params=params if params else None)
+    finally:
+        conn.close()
     return df
 
 def execute(sql, params=()):
     conn = get_conn()
     c = conn.cursor()
+    sql = _adapt_sql(sql)
     c.execute(sql, params)
     conn.commit()
-    last_id = c.lastrowid
+    last_id = None
+    try:
+        last_id = c.lastrowid
+    except Exception:
+        last_id = None
     conn.close()
     return last_id
 
@@ -777,8 +856,16 @@ def prepare_records_df():
     df['record_date'] = pd.to_datetime(df['record_date'])
     df['fy_month'] = df['record_date'].apply(get_fy_label)
     df['credits'] = df.apply(total_credits_row, axis=1)
-    df['fuel_topup'] = df.get('fuel_topup', 0).fillna(0)
-    df['driver_compensation'] = df.get('driver_compensation', 0).fillna(0)
+    for col, default in [
+        ('fuel_topup', 0), ('driver_compensation', 0), ('airtime', 0),
+        ('other_expenses', 0), ('fuel_cost', 0), ('cash_collected', 0),
+    ]:
+        if col not in df.columns:
+            df[col] = default
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(default)
+    if 'duty' not in df.columns:
+        df['duty'] = df.get('notes', 'Day')
+    df['duty'] = df['duty'].fillna('Day').replace('', 'Day')
     return df
 
 # ---------------------- PAGES ----------------------
@@ -838,10 +925,11 @@ def page_dashboard():
         fuel = mdf['fuel_cost'].sum() if not mdf.empty else 0
         topup = mdf['fuel_topup'].sum() if not mdf.empty else 0
         driver_comp = mdf['driver_compensation'].sum() if not mdf.empty else 0
+        airtime = mdf['airtime'].sum() if not mdf.empty else 0
         other = mdf['other_expenses'].sum() if not mdf.empty else 0
         trips = int(mdf['trips'].sum()) if not mdf.empty else 0
         revenue = cash + credits
-        expenses = fuel + topup + driver_comp + other
+        expenses = fuel + topup + driver_comp + airtime + other
         net = revenue - expenses
 
         c1, c2, c3, c4 = st.columns(4)
@@ -854,11 +942,12 @@ def page_dashboard():
         c5.metric("Fuel Cost", money(fuel))
         c6.metric("Fuel Top-up", money(topup))
         c7.metric("Driver Comp", money(driver_comp))
-        c8.metric("Other Expenses", money(other))
+        c8.metric("Airtime", money(airtime))
 
-        c9, c10, _ = st.columns(3)
-        c9.metric("Trips", trips)
-        c10.metric("Net", money(net))
+        c9, c10, c11 = st.columns(3)
+        c9.metric("Other Expenses", money(other))
+        c10.metric("Trips", trips)
+        c11.metric("Net", money(net))
 
         # Per vehicle for selected month
         if not mdf.empty:
@@ -869,19 +958,21 @@ def page_dashboard():
                 'fuel_cost': 'sum',
                 'fuel_topup': 'sum',
                 'driver_compensation': 'sum',
+                'airtime': 'sum',
                 'other_expenses': 'sum',
                 'trips': 'sum',
             }).reset_index()
             by_veh['Net'] = (by_veh['cash_collected'] + by_veh['credits']
                              - by_veh['fuel_cost'] - by_veh['fuel_topup']
-                             - by_veh['driver_compensation'] - by_veh['other_expenses'])
-            by_veh.columns = ['Vehicle', 'Cash', 'Credits', 'Fuel', 'Top-up', 'Driver Comp', 'Other', 'Trips', 'Net']
+                             - by_veh['driver_compensation'] - by_veh['airtime']
+                             - by_veh['other_expenses'])
+            by_veh.columns = ['Vehicle', 'Cash', 'Credits', 'Fuel', 'Top-up', 'Driver Comp', 'Airtime', 'Other', 'Trips', 'Net']
             st.dataframe(
                 by_veh.style.format({
                     'Cash': 'M {:,.0f}', 'Credits': 'M {:,.0f}',
                     'Fuel': 'M {:,.0f}', 'Top-up': 'M {:,.0f}',
-                    'Driver Comp': 'M {:,.0f}', 'Other': 'M {:,.0f}',
-                    'Net': 'M {:,.0f}',
+                    'Driver Comp': 'M {:,.0f}', 'Airtime': 'M {:,.0f}',
+                    'Other': 'M {:,.0f}', 'Net': 'M {:,.0f}',
                 }),
                 use_container_width=True,
                 hide_index=True
@@ -897,39 +988,75 @@ def page_dashboard():
     else:
         st.caption("No invoices yet.")
 
+def _auto_driver_for(vehicle_name, plate):
+    """Last saved driver for this car, else DEFAULT_DRIVERS mapping."""
+    try:
+        df = query_df(
+            "SELECT driver_name FROM daily_records WHERE plate = ? AND driver_name IS NOT NULL AND TRIM(driver_name) != '' ORDER BY id DESC LIMIT 1",
+            (plate,),
+        )
+        if not df.empty and str(df.iloc[0]['driver_name']).strip():
+            return str(df.iloc[0]['driver_name']).strip()
+    except Exception:
+        pass
+    return DEFAULT_DRIVERS.get(vehicle_name, "")
+
+
 def page_daily_entry():
-    st.header("Daily Record Entry")
+    st.header("Daily Entry")
+    st.caption("Compact entry · driver auto-fills from the car’s last driver")
+
+    veh_dict = vehicle_options()
+    # Vehicle outside form so driver can auto-update when car changes
+    r1c1, r1c2 = st.columns(2)
+    with r1c1:
+        record_date = st.date_input("Date", value=date.today(), key="de_date")
+    with r1c2:
+        vehicle_label = st.selectbox("Vehicle", list(veh_dict.keys()), key="de_vehicle")
+    vehicle = veh_dict[vehicle_label]
+    auto_driver = _auto_driver_for(vehicle['name'], vehicle['plate'])
 
     with st.form("daily_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            record_date = st.date_input("Date", value=date.today())
-            veh_dict = vehicle_options()
-            vehicle_label = st.selectbox("Vehicle", list(veh_dict.keys()))
-            vehicle = veh_dict[vehicle_label]
-            driver = st.text_input("Driver name (optional)")
-        with col2:
-            cash = st.number_input("Cash Collected (M)", min_value=0.0, step=50.0, format="%.2f")
-            trips = st.number_input("Number of trips", min_value=0, step=1)
+        # Row: driver, duty, trips, cash
+        a1, a2, a3, a4 = st.columns(4)
+        with a1:
+            driver = st.text_input("Driver name", value=auto_driver, help="Auto from this car — edit if different driver")
+        with a2:
+            duty = st.selectbox("Duty", ["Day", "Night"], index=0)
+        with a3:
+            trips = st.number_input("Trips", min_value=0, step=1, value=0)
+        with a4:
+            cash = st.number_input("Cash (M)", min_value=0.0, step=50.0, format="%.2f")
+
+        # Row: fuel, top-up, driver comp, airtime
+        b1, b2, b3, b4 = st.columns(4)
+        with b1:
             fuel_cost = st.number_input("Fuel cost (M)", min_value=0.0, step=10.0, format="%.2f")
-            fuel_topup = st.number_input("Fuel Top Up from Office (M)", min_value=0.0, step=10.0, format="%.2f",
-                                         help="Money given from office when daily cash is not enough to fill the car")
-            driver_comp = st.number_input("Drivers Compensation (M)", min_value=0.0, value=40.0, step=5.0, format="%.2f")
+        with b2:
+            fuel_topup = st.number_input("Fuel top-up office (M)", min_value=0.0, step=10.0, format="%.2f")
+        with b3:
+            driver_comp = st.number_input("Driver comp (M)", min_value=0.0, value=40.0, step=5.0, format="%.2f")
+        with b4:
+            airtime = st.number_input("Airtime (M)", min_value=0.0, value=10.0, step=1.0, format="%.2f")
 
-        st.markdown("**Monthly Credits / Contract Payments**")
-        c1, c2, c3 = st.columns(3)
+        st.markdown("**Monthly credits / contracts**")
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            credit_alliance = st.number_input("Alliance (M)", min_value=0.0, step=50.0, format="%.2f")
-            credit_lehae = st.number_input("Lehae (M)", min_value=0.0, step=50.0, format="%.2f")
+            credit_alliance = st.number_input("Alliance", min_value=0.0, step=50.0, format="%.2f")
         with c2:
-            credit_worldvision = st.number_input("World Vision (M)", min_value=0.0, step=50.0, format="%.2f")
-            credit_waleslink = st.number_input("Waleslink (M)", min_value=0.0, step=50.0, format="%.2f")
+            credit_lehae = st.number_input("Lehae", min_value=0.0, step=50.0, format="%.2f")
         with c3:
-            credit_lnlvip = st.number_input("LNLVIP (M)", min_value=0.0, step=50.0, format="%.2f")
+            credit_worldvision = st.number_input("World Vision", min_value=0.0, step=50.0, format="%.2f")
+        with c4:
+            credit_waleslink = st.number_input("Waleslink", min_value=0.0, step=50.0, format="%.2f")
+        with c5:
+            credit_lnlvip = st.number_input("LNLVIP", min_value=0.0, step=50.0, format="%.2f")
 
-        other_exp = st.number_input("Other expenses (M)", min_value=0.0, step=10.0, format="%.2f")
-        exp_notes = st.text_input("Expense notes (repairs, etc.)")
-        notes = st.text_area("General notes", height=80)
+        e1, e2 = st.columns(2)
+        with e1:
+            other_exp = st.number_input("Other expenses (M)", min_value=0.0, step=10.0, format="%.2f")
+        with e2:
+            exp_notes = st.text_input("Expense notes")
 
         submitted = st.form_submit_button("Save Record", use_container_width=True, type="primary")
 
@@ -937,18 +1064,19 @@ def page_daily_entry():
             execute("""
                 INSERT INTO daily_records 
                 (record_date, vehicle_id, vehicle_name, plate, cash_collected, fuel_cost, fuel_topup,
-                 trips, other_expenses, expense_notes, driver_compensation,
+                 trips, other_expenses, expense_notes, driver_compensation, airtime, duty,
                  credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
                  driver_name, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 record_date.isoformat(), vehicle['id'], vehicle['name'], vehicle['plate'],
-                cash, fuel_cost, fuel_topup, trips, other_exp, exp_notes, driver_comp,
+                cash, fuel_cost, fuel_topup, trips, other_exp, exp_notes, driver_comp, airtime, duty,
                 credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
-                driver, notes
+                driver, duty  # notes kept in sync with duty for older views
             ))
-            st.success(f"Saved for {vehicle['name']} on {record_date}")
-            st.balloons()
+            # Remember driver for this car in session defaults
+            DEFAULT_DRIVERS[vehicle['name']] = driver
+            st.success(f"Saved · {vehicle['name']} · {record_date} · {duty} duty")
 
 def page_records():
     st.header("All Daily Records")
@@ -1004,8 +1132,9 @@ def page_records():
             </div>
             """, unsafe_allow_html=True)
 
-            show_cols = ['vehicle_name', 'cash_collected', 'fuel_cost', 'fuel_topup',
-                         'driver_compensation', 'credits', 'other_expenses', 'trips', 'driver_name']
+            show_cols = ['vehicle_name', 'driver_name', 'duty', 'trips', 'cash_collected',
+                         'fuel_cost', 'fuel_topup', 'driver_compensation', 'airtime',
+                         'credits', 'other_expenses']
             display = gdf[[c for c in show_cols if c in gdf.columns]].copy()
             st.dataframe(
                 display.style.format({
@@ -1013,6 +1142,7 @@ def page_records():
                     'fuel_cost': 'M {:,.0f}',
                     'fuel_topup': 'M {:,.0f}',
                     'driver_compensation': 'M {:,.0f}',
+                    'airtime': 'M {:,.0f}',
                     'credits': 'M {:,.0f}',
                     'other_expenses': 'M {:,.0f}',
                 }),
@@ -1053,7 +1183,6 @@ def page_records():
         with col_edit:
             with st.expander("Edit Record", expanded=False):
                 with st.form("edit_record_form"):
-                    # Date – changing this moves the record into the correct date group
                     current_date = selected_row['record_date']
                     if hasattr(current_date, 'date'):
                         current_date = current_date.date()
@@ -1061,7 +1190,6 @@ def page_records():
                         current_date = pd.to_datetime(current_date).date()
                     e_date = st.date_input("Date", value=current_date)
 
-                    # Vehicle
                     veh_dict = vehicle_options()
                     current_plate = str(selected_row.get('plate') or "")
                     current_label = next(
@@ -1075,26 +1203,42 @@ def page_records():
                     )
                     e_vehicle = veh_dict[e_vehicle_label]
 
-                    e_cash = st.number_input("Cash Collected (M)", value=float(selected_row.get('cash_collected') or 0), min_value=0.0, step=50.0, format="%.2f")
-                    e_fuel = st.number_input("Fuel Cost (M)", value=float(selected_row.get('fuel_cost') or 0), min_value=0.0, step=10.0, format="%.2f")
-                    e_topup = st.number_input("Fuel Top-up (M)", value=float(selected_row.get('fuel_topup') or 0), min_value=0.0, step=10.0, format="%.2f")
-                    e_dcomp = st.number_input("Driver Comp (M)", value=float(selected_row.get('driver_compensation') or 40), min_value=0.0, step=5.0, format="%.2f")
-                    e_trips = st.number_input("Trips", value=int(selected_row.get('trips') or 0), min_value=0, step=1)
-                    e_other = st.number_input("Other Expenses (M)", value=float(selected_row.get('other_expenses') or 0), min_value=0.0, step=10.0, format="%.2f")
+                    ea1, ea2, ea3, ea4 = st.columns(4)
+                    with ea1:
+                        e_driver = st.text_input("Driver name", value=str(selected_row.get('driver_name') or ""))
+                    with ea2:
+                        cur_duty = str(selected_row.get('duty') or selected_row.get('notes') or "Day")
+                        if cur_duty not in ("Day", "Night"):
+                            cur_duty = "Day"
+                        e_duty = st.selectbox("Duty", ["Day", "Night"], index=0 if cur_duty == "Day" else 1)
+                    with ea3:
+                        e_trips = st.number_input("Trips", value=int(selected_row.get('trips') or 0), min_value=0, step=1)
+                    with ea4:
+                        e_cash = st.number_input("Cash (M)", value=float(selected_row.get('cash_collected') or 0), min_value=0.0, step=50.0, format="%.2f")
+
+                    eb1, eb2, eb3, eb4 = st.columns(4)
+                    with eb1:
+                        e_fuel = st.number_input("Fuel (M)", value=float(selected_row.get('fuel_cost') or 0), min_value=0.0, step=10.0, format="%.2f")
+                    with eb2:
+                        e_topup = st.number_input("Top-up (M)", value=float(selected_row.get('fuel_topup') or 0), min_value=0.0, step=10.0, format="%.2f")
+                    with eb3:
+                        e_dcomp = st.number_input("Driver comp (M)", value=float(selected_row.get('driver_compensation') or 40), min_value=0.0, step=5.0, format="%.2f")
+                    with eb4:
+                        e_airtime = st.number_input("Airtime (M)", value=float(selected_row.get('airtime') or 10), min_value=0.0, step=1.0, format="%.2f")
+
+                    e_other = st.number_input("Other expenses (M)", value=float(selected_row.get('other_expenses') or 0), min_value=0.0, step=10.0, format="%.2f")
                     e_alliance = st.number_input("Alliance (M)", value=float(selected_row.get('credit_alliance') or 0), min_value=0.0, step=50.0, format="%.2f")
                     e_lehae = st.number_input("Lehae (M)", value=float(selected_row.get('credit_lehae') or 0), min_value=0.0, step=50.0, format="%.2f")
                     e_wv = st.number_input("World Vision (M)", value=float(selected_row.get('credit_worldvision') or 0), min_value=0.0, step=50.0, format="%.2f")
                     e_wales = st.number_input("Waleslink (M)", value=float(selected_row.get('credit_waleslink') or 0), min_value=0.0, step=50.0, format="%.2f")
                     e_lnl = st.number_input("LNLVIP (M)", value=float(selected_row.get('credit_lnlvip') or 0), min_value=0.0, step=50.0, format="%.2f")
-                    e_driver = st.text_input("Driver name", value=str(selected_row.get('driver_name') or ""))
-                    e_notes = st.text_area("Notes", value=str(selected_row.get('notes') or ""))
 
                     if st.form_submit_button("Save Changes", type="primary"):
                         execute("""
                             UPDATE daily_records SET
                                 record_date=?, vehicle_id=?, vehicle_name=?, plate=?,
                                 cash_collected=?, fuel_cost=?, fuel_topup=?, driver_compensation=?,
-                                trips=?, other_expenses=?,
+                                airtime=?, duty=?, trips=?, other_expenses=?,
                                 credit_alliance=?, credit_lehae=?, credit_worldvision=?,
                                 credit_waleslink=?, credit_lnlvip=?,
                                 driver_name=?, notes=?
@@ -1102,11 +1246,11 @@ def page_records():
                         """, (
                             e_date.isoformat(),
                             e_vehicle['id'], e_vehicle['name'], e_vehicle['plate'],
-                            e_cash, e_fuel, e_topup, e_dcomp, e_trips, e_other,
+                            e_cash, e_fuel, e_topup, e_dcomp, e_airtime, e_duty, e_trips, e_other,
                             e_alliance, e_lehae, e_wv, e_wales, e_lnl,
-                            e_driver, e_notes, selected_id
+                            e_driver, e_duty, selected_id
                         ))
-                        st.success(f"Record ID {selected_id} updated. It will now appear under {e_date}.")
+                        st.success(f"Record ID {selected_id} updated · {e_date} · {e_duty}")
                         st.rerun()
 
         with col_del:
@@ -1484,54 +1628,98 @@ def _restore_dataframe(df, table_name, skip_cols=None):
     if df is None or df.empty:
         return 0
     skip_cols = skip_cols or set()
-    # Normalise column names
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
     conn = get_conn()
-    # Get existing table columns
-    existing = pd.read_sql_query(f"PRAGMA table_info({table_name})", conn)
+    # Column list for SQLite or Postgres
+    if using_cloud_db():
+        existing = pd.read_sql_query(
+            "SELECT column_name AS name FROM information_schema.columns WHERE table_name = %s",
+            conn, params=(table_name,)
+        )
+    else:
+        existing = pd.read_sql_query(f"PRAGMA table_info({table_name})", conn)
     table_cols = set(existing['name'].tolist())
-    # Keep only columns that exist in the table (except id — let SQLite assign new ids if needed)
     use_cols = [c for c in df.columns if c in table_cols and c not in skip_cols]
     if not use_cols:
+        conn.close()
         return 0
     df = df[use_cols]
-    # Replace NaN with None for SQLite
     df = df.where(pd.notnull(df), None)
-    placeholders = ", ".join(["?"] * len(use_cols))
+    ph = "%s" if using_cloud_db() else "?"
+    placeholders = ", ".join([ph] * len(use_cols))
     col_list = ", ".join(use_cols)
     sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
     count = 0
+    c = conn.cursor()
     for _, row in df.iterrows():
         values = []
-        for c in use_cols:
-            v = row[c]
-            if pd.isna(v) if not isinstance(v, str) else False:
-                values.append(None)
-            else:
+        for col in use_cols:
+            v = row[col]
+            try:
+                if pd.isna(v):
+                    values.append(None)
+                else:
+                    values.append(v)
+            except Exception:
                 values.append(v)
         try:
-            conn.execute(sql, tuple(values))
+            c.execute(sql, tuple(values))
             count += 1
         except Exception:
-            # Skip duplicate quote/invoice numbers etc.
             continue
     conn.commit()
+    conn.close()
     return count
 
 
 def page_export():
     st.header("Backup & Export")
 
-    st.markdown("""
-    <div style="border: 1px solid #f5a623; border-radius: 10px; padding: 16px; background: #1a1508; margin-bottom: 20px;">
-        <p style="color:#f5a623; font-weight:700; margin:0 0 8px 0;">⚠ Keep your records safe</p>
-        <p style="color:#ddd; font-size:13px; margin:0; line-height:1.5;">
-        On the free plan the app database can reset if nobody opens the app for a long time.
-        <b>Download a full backup at least once a week</b> and save it to Google Drive or your phone.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+    if using_cloud_db():
+        st.markdown("""
+        <div style="border: 1px solid #2ecc71; border-radius: 10px; padding: 16px; background: #0d1f14; margin-bottom: 20px;">
+            <p style="color:#2ecc71; font-weight:700; margin:0 0 8px 0;">Cloud database connected</p>
+            <p style="color:#ddd; font-size:13px; margin:0; line-height:1.5;">
+            Your records are stored in a permanent free cloud database.
+            The app can sleep — your data will still be there when you come back.
+            Still download a weekly Excel backup to Google Drive as a second safety copy.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="border: 1px solid #f5a623; border-radius: 10px; padding: 16px; background: #1a1508; margin-bottom: 20px;">
+            <p style="color:#f5a623; font-weight:700; margin:0 0 8px 0;">Local storage only (can be wiped when app sleeps)</p>
+            <p style="color:#ddd; font-size:13px; margin:0; line-height:1.5;">
+            Cloud database is not connected yet. Follow the setup steps below (free Supabase),
+            or keep downloading a Full Backup to Google Drive after every data entry day.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        with st.expander("Set up free permanent cloud database (Supabase)", expanded=True):
+            st.markdown("""
+**About 10–15 minutes · Free forever for this size of business**
+
+1. Open [https://supabase.com](https://supabase.com) and create a free account  
+2. Click **New project** → choose a name (e.g. `maxy-taxi`) → set a database password → create  
+3. Wait until the project is ready (green)  
+4. Left menu → **Project Settings** (gear) → **Database**  
+5. Under **Connection string** choose **URI**  
+6. Copy the URI and replace `[YOUR-PASSWORD]` with the password you set  
+7. Open your app on **share.streamlit.io** → top-right **⋯** → **Settings** → **Secrets**  
+8. Paste exactly this (one line, with your real URI):
+
+```toml
+DATABASE_URL = "postgresql://postgres.xxxxx:YOUR_PASSWORD@aws-0-xxxxx.pooler.supabase.com:6543/postgres"
+```
+
+9. Click **Save** → wait for the app to reboot  
+10. Open **Backup / Export** again — you should see **Cloud database connected**  
+11. Use **Restore from backup** to load your Google Drive Excel file into the cloud  
+
+After that, data survives sleep and restarts.
+            """)
 
     # ---------- RESTORE ----------
     st.subheader("Restore from backup")
