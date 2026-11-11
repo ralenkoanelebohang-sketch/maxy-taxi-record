@@ -1479,6 +1479,47 @@ def page_invoices():
                     st.success("Updated!")
                     st.rerun()
 
+def _restore_dataframe(df, table_name, skip_cols=None):
+    """Insert rows from a backup dataframe into a table. Returns count inserted."""
+    if df is None or df.empty:
+        return 0
+    skip_cols = skip_cols or set()
+    # Normalise column names
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    conn = get_conn()
+    # Get existing table columns
+    existing = pd.read_sql_query(f"PRAGMA table_info({table_name})", conn)
+    table_cols = set(existing['name'].tolist())
+    # Keep only columns that exist in the table (except id — let SQLite assign new ids if needed)
+    use_cols = [c for c in df.columns if c in table_cols and c not in skip_cols]
+    if not use_cols:
+        return 0
+    df = df[use_cols]
+    # Replace NaN with None for SQLite
+    df = df.where(pd.notnull(df), None)
+    placeholders = ", ".join(["?"] * len(use_cols))
+    col_list = ", ".join(use_cols)
+    sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
+    count = 0
+    for _, row in df.iterrows():
+        values = []
+        for c in use_cols:
+            v = row[c]
+            if pd.isna(v) if not isinstance(v, str) else False:
+                values.append(None)
+            else:
+                values.append(v)
+        try:
+            conn.execute(sql, tuple(values))
+            count += 1
+        except Exception:
+            # Skip duplicate quote/invoice numbers etc.
+            continue
+    conn.commit()
+    return count
+
+
 def page_export():
     st.header("Backup & Export")
 
@@ -1492,6 +1533,80 @@ def page_export():
     </div>
     """, unsafe_allow_html=True)
 
+    # ---------- RESTORE ----------
+    st.subheader("Restore from backup")
+    st.caption("Download your Excel file from Google Drive first, then upload it here.")
+    uploaded = st.file_uploader(
+        "Upload Maxy Taxi backup (.xlsx or .csv)",
+        type=["xlsx", "xls", "csv"],
+        key="restore_upload"
+    )
+    replace_all = st.checkbox(
+        "Clear existing data before restore (recommended if the app is empty)",
+        value=True
+    )
+
+    if uploaded is not None:
+        st.info(f"File ready: **{uploaded.name}**")
+        if st.button("Restore now", type="primary", use_container_width=True):
+            try:
+                name = uploaded.name.lower()
+                sheets = {}
+                if name.endswith(".csv"):
+                    sheets["Daily Records"] = pd.read_csv(uploaded)
+                else:
+                    xl = pd.ExcelFile(uploaded)
+                    for sheet in xl.sheet_names:
+                        sheets[sheet] = pd.read_excel(xl, sheet_name=sheet)
+
+                if replace_all:
+                    conn = get_conn()
+                    for t in ["daily_records", "clients", "quotations", "invoices"]:
+                        conn.execute(f"DELETE FROM {t}")
+                    conn.commit()
+
+                # Map possible sheet names
+                def find_sheet(options):
+                    for s in sheets:
+                        if s.strip().lower() in options:
+                            return sheets[s]
+                    return None
+
+                n_rec = _restore_dataframe(
+                    find_sheet({"daily records", "daily_records", "records"}),
+                    "daily_records",
+                    skip_cols={"id"}  # new ids; avoids conflicts
+                )
+                n_cli = _restore_dataframe(
+                    find_sheet({"clients", "client"}),
+                    "clients",
+                    skip_cols={"id"}
+                )
+                n_qt = _restore_dataframe(
+                    find_sheet({"quotations", "quotes", "quotation"}),
+                    "quotations",
+                    skip_cols={"id"}
+                )
+                n_inv = _restore_dataframe(
+                    find_sheet({"invoices", "invoice"}),
+                    "invoices",
+                    skip_cols={"id"}
+                )
+
+                st.success(
+                    f"Restore complete!\n\n"
+                    f"- Daily records: **{n_rec}**\n"
+                    f"- Clients: **{n_cli}**\n"
+                    f"- Quotations: **{n_qt}**\n"
+                    f"- Invoices: **{n_inv}**"
+                )
+                st.balloons()
+            except Exception as e:
+                st.error(f"Restore failed: {e}")
+
+    st.markdown("---")
+
+    # ---------- DOWNLOAD ----------
     st.subheader("Download backups")
     df_rec = query_df("SELECT * FROM daily_records")
     if not df_rec.empty:
@@ -1519,9 +1634,9 @@ def page_export():
                 use_container_width=True,
                 type="primary"
             )
-        st.success("Tip: After downloading, open Google Drive → Upload → keep the file in a folder called Maxy Taxi Backups.")
+        st.success("Tip: Save every backup to your Google Drive folder so you can restore anytime.")
     else:
-        st.info("No data to export yet. Start by adding Daily Entry records.")
+        st.info("No data in the app right now. Use **Restore from backup** above to bring your data back.")
 
     st.markdown("---")
     st.subheader("Make the app private")
