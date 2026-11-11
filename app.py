@@ -142,6 +142,9 @@ st.markdown("""
         border-color: #f5a623 !important;
         box-shadow: 0 0 0 1px #f5a62355 !important;
     }
+    /* Hide +/- steppers on number inputs */
+    div[data-testid="stNumberInput"] button { display: none !important; }
+    div[data-testid="stNumberInput"] > div > div > div:last-child { display: none !important; }
 
     /* ===== DATAFRAMES / TABLES ===== */
     .stDataFrame {
@@ -497,14 +500,13 @@ def generate_invoice_pdf(invoice, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9, leading=12)
 
-    # Letterhead at top edge — no black border lines
+    # Letterhead banner + yellow bottom border
     header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(header_path):
-        header = Image(header_path, width=186*mm, height=36*mm)
+        header = Image(header_path, width=186*mm, height=38*mm)
         header.hAlign = 'CENTER'
         elements.append(header)
-        elements.append(Spacer(1, 4*mm))
     elif os.path.exists(logo_path):
         logo = Image(logo_path, width=70*mm, height=22*mm)
         logo.hAlign = 'CENTER'
@@ -513,6 +515,7 @@ def generate_invoice_pdf(invoice, client=None):
     else:
         elements.append(Paragraph("MAXY TAXI", title_style))
         elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
+    elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#f5a623"), spaceBefore=1*mm, spaceAfter=4*mm))
 
     elements.append(Paragraph("INVOICE", ParagraphStyle('InvTitle', parent=styles['Heading1'],
                                                          fontSize=13, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
@@ -551,6 +554,10 @@ def generate_invoice_pdf(invoice, client=None):
     desc = invoice.get('description') or "Transport services"
     amount = float(invoice.get('amount') or 0)
 
+    def _is_blank(v):
+        s = str(v).strip().lower() if v is not None else ""
+        return s in ("", "null", "none", "nan")
+
     lines = [ln.strip() for ln in str(desc).split("\n") if ln.strip()]
     header_style = ParagraphStyle('TH', parent=bold, textColor=colors.HexColor("#1a1a1a"))
     items_data = [
@@ -563,24 +570,34 @@ def generate_invoice_pdf(invoice, client=None):
     has_breakdown = False
     for ln in lines:
         parts = [p.strip() for p in ln.split("|")]
+        # Skip empty / null description rows
+        if not parts or _is_blank(parts[0]):
+            continue
         if len(parts) >= 3:
-            has_breakdown = True
+            if _is_blank(parts[2]):
+                continue
             try:
                 amt = float(parts[2].replace("M", "").replace(",", "").strip())
             except Exception:
                 amt = 0.0
+            if amt == 0 and _is_blank(parts[1]):
+                continue
+            has_breakdown = True
             parsed_total += amt
+            qty = "" if _is_blank(parts[1]) else parts[1]
             items_data.append([
                 Paragraph(parts[0], normal),
-                Paragraph(parts[1], normal),
+                Paragraph(qty, normal),
                 Paragraph(f"M{amt:,.2f}", right),
             ])
         elif len(parts) == 2:
-            has_breakdown = True
+            if _is_blank(parts[1]):
+                continue
             try:
                 amt = float(parts[1].replace("M", "").replace(",", "").strip())
             except Exception:
                 amt = 0.0
+            has_breakdown = True
             parsed_total += amt
             items_data.append([
                 Paragraph(parts[0], normal),
@@ -594,8 +611,8 @@ def generate_invoice_pdf(invoice, client=None):
                 Paragraph("", right),
             ])
 
-    # A few empty rows for professional spacing (keep one page)
-    for _ in range(3):
+    # Spacing rows only if there is content
+    for _ in range(2):
         items_data.append([Paragraph("<br/>", normal), Paragraph("", normal), Paragraph("", right)])
 
     total_amount = parsed_total if has_breakdown and parsed_total > 0 else amount
@@ -668,14 +685,13 @@ def generate_quotation_pdf(quote, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9)
 
-    # Letterhead at top edge — no black border lines
+    # Letterhead banner + yellow bottom border
     header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
     logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
     if os.path.exists(header_path):
-        header = Image(header_path, width=186*mm, height=36*mm)
+        header = Image(header_path, width=186*mm, height=38*mm)
         header.hAlign = 'CENTER'
         elements.append(header)
-        elements.append(Spacer(1, 4*mm))
     elif os.path.exists(logo_path):
         logo = Image(logo_path, width=70*mm, height=22*mm)
         logo.hAlign = 'CENTER'
@@ -684,6 +700,7 @@ def generate_quotation_pdf(quote, client=None):
     else:
         elements.append(Paragraph("MAXY TAXI", title_style))
         elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
+    elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#f5a623"), spaceBefore=1*mm, spaceAfter=4*mm))
 
     elements.append(Paragraph("QUOTATION", ParagraphStyle('QTitle', parent=styles['Heading1'],
                                                            fontSize=13, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
@@ -715,6 +732,10 @@ def generate_quotation_pdf(quote, client=None):
     desc = quote.get('description') or "Transport services"
     amount = float(quote.get('amount') or 0)
 
+    def _is_blank(v):
+        s = str(v).strip().lower() if v is not None else ""
+        return s in ("", "null", "none", "nan")
+
     lines = [ln.strip() for ln in str(desc).split("\n") if ln.strip()]
     header_style = ParagraphStyle('QTH', parent=bold, textColor=colors.HexColor("#1a1a1a"))
     items_data = [
@@ -726,24 +747,31 @@ def generate_quotation_pdf(quote, client=None):
     has_breakdown = False
     for ln in lines:
         parts = [p.strip() for p in ln.split("|")]
+        if not parts or _is_blank(parts[0]):
+            continue
         if len(parts) >= 3:
-            has_breakdown = True
+            if _is_blank(parts[2]):
+                continue
             try:
                 amt = float(parts[2].replace("M", "").replace(",", "").strip())
             except Exception:
                 amt = 0.0
+            has_breakdown = True
             parsed_total += amt
+            qty = "" if _is_blank(parts[1]) else parts[1]
             items_data.append([
                 Paragraph(parts[0], normal),
-                Paragraph(parts[1], normal),
+                Paragraph(qty, normal),
                 Paragraph(f"M{amt:,.2f}", right),
             ])
         elif len(parts) == 2:
-            has_breakdown = True
+            if _is_blank(parts[1]):
+                continue
             try:
                 amt = float(parts[1].replace("M", "").replace(",", "").strip())
             except Exception:
                 amt = 0.0
+            has_breakdown = True
             parsed_total += amt
             items_data.append([
                 Paragraph(parts[0], normal),
@@ -814,6 +842,18 @@ def money(x):
         return f"M {float(x):,.2f}"
     except:
         return "M 0.00"
+
+def parse_amount(s, default=0.0):
+    """Parse typed amount; blank → default (no need to delete 0.00)."""
+    if s is None:
+        return default
+    t = str(s).strip().replace(",", "").replace("M", "").replace("m", "")
+    if t == "":
+        return default
+    try:
+        return float(t)
+    except Exception:
+        return default
 
 def vehicle_options():
     return {f"{v['name']} ({v['plate']})": v for v in VEHICLES}
@@ -1017,50 +1057,62 @@ def page_daily_entry():
     auto_driver = _auto_driver_for(vehicle['name'], vehicle['plate'])
 
     with st.form("daily_form", clear_on_submit=True):
-        # Row: driver, duty, trips, cash
+        # Blank fields = 0 (no need to delete 0.00). No +/- buttons (text fields).
         a1, a2, a3, a4 = st.columns(4)
         with a1:
             driver = st.text_input("Driver name", value=auto_driver, help="Auto from this car — edit if different driver")
         with a2:
             duty = st.selectbox("Duty", ["Day", "Night"], index=0)
         with a3:
-            trips = st.number_input("Trips", min_value=0, step=1, value=0)
+            trips_s = st.text_input("Trips", value="", placeholder="e.g. 5")
         with a4:
-            cash = st.number_input("Cash (M)", min_value=0.0, step=50.0, format="%.2f")
+            cash_s = st.text_input("Cash (M)", value="", placeholder="Amount")
 
-        # Row: fuel, top-up, driver comp, airtime
         b1, b2, b3, b4 = st.columns(4)
         with b1:
-            fuel_cost = st.number_input("Fuel cost (M)", min_value=0.0, step=10.0, format="%.2f")
+            fuel_s = st.text_input("Fuel cost (M)", value="", placeholder="Amount")
         with b2:
-            fuel_topup = st.number_input("Fuel top-up office (M)", min_value=0.0, step=10.0, format="%.2f")
+            topup_s = st.text_input("Fuel top-up office (M)", value="", placeholder="Amount")
         with b3:
-            driver_comp = st.number_input("Driver comp (M)", min_value=0.0, value=40.0, step=5.0, format="%.2f")
+            dcomp_s = st.text_input("Driver comp (M)", value="40", placeholder="40")
         with b4:
-            airtime = st.number_input("Airtime (M)", min_value=0.0, value=10.0, step=1.0, format="%.2f")
+            airtime_s = st.text_input("Airtime (M)", value="10", placeholder="10")
 
         st.markdown("**Monthly credits / contracts**")
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
-            credit_alliance = st.number_input("Alliance", min_value=0.0, step=50.0, format="%.2f")
+            ca_s = st.text_input("Alliance", value="", placeholder="0")
         with c2:
-            credit_lehae = st.number_input("Lehae", min_value=0.0, step=50.0, format="%.2f")
+            cl_s = st.text_input("Lehae", value="", placeholder="0")
         with c3:
-            credit_worldvision = st.number_input("World Vision", min_value=0.0, step=50.0, format="%.2f")
+            cw_s = st.text_input("World Vision", value="", placeholder="0")
         with c4:
-            credit_waleslink = st.number_input("Waleslink", min_value=0.0, step=50.0, format="%.2f")
+            cwa_s = st.text_input("Waleslink", value="", placeholder="0")
         with c5:
-            credit_lnlvip = st.number_input("LNLVIP", min_value=0.0, step=50.0, format="%.2f")
+            cln_s = st.text_input("LNLVIP", value="", placeholder="0")
 
         e1, e2 = st.columns(2)
         with e1:
-            other_exp = st.number_input("Other expenses (M)", min_value=0.0, step=10.0, format="%.2f")
+            other_s = st.text_input("Other expenses (M)", value="", placeholder="Amount")
         with e2:
-            exp_notes = st.text_input("Expense notes")
+            exp_notes = st.text_input("Expense notes", value="")
 
         submitted = st.form_submit_button("Save Record", use_container_width=True, type="primary")
 
         if submitted:
+            trips = int(parse_amount(trips_s, 0))
+            cash = parse_amount(cash_s)
+            fuel_cost = parse_amount(fuel_s)
+            fuel_topup = parse_amount(topup_s)
+            driver_comp = parse_amount(dcomp_s, 40.0)
+            airtime = parse_amount(airtime_s, 10.0)
+            credit_alliance = parse_amount(ca_s)
+            credit_lehae = parse_amount(cl_s)
+            credit_worldvision = parse_amount(cw_s)
+            credit_waleslink = parse_amount(cwa_s)
+            credit_lnlvip = parse_amount(cln_s)
+            other_exp = parse_amount(other_s)
+
             execute("""
                 INSERT INTO daily_records 
                 (record_date, vehicle_id, vehicle_name, plate, cash_collected, fuel_cost, fuel_topup,
@@ -1072,9 +1124,8 @@ def page_daily_entry():
                 record_date.isoformat(), vehicle['id'], vehicle['name'], vehicle['plate'],
                 cash, fuel_cost, fuel_topup, trips, other_exp, exp_notes, driver_comp, airtime, duty,
                 credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
-                driver, duty  # notes kept in sync with duty for older views
+                driver, duty
             ))
-            # Remember driver for this car in session defaults
             DEFAULT_DRIVERS[vehicle['name']] = driver
             st.success(f"Saved · {vehicle['name']} · {record_date} · {duty} duty")
 
@@ -1417,10 +1468,12 @@ def page_quotations():
                 lines = []
                 for _, r in edited_qt.iterrows():
                     desc = str(r.get("DESCRIPTION") or "").strip()
-                    if not desc:
+                    if not desc or desc.lower() in ("null", "none", "nan"):
                         continue
                     qty = r.get("QTY")
                     amt = r.get("AMOUNT (M)")
+                    if pd.isna(amt) and pd.isna(qty):
+                        continue
                     qty_s = "" if pd.isna(qty) else str(int(qty))
                     amt_s = "0" if pd.isna(amt) else str(float(amt))
                     lines.append(f"{desc} | {qty_s} | {amt_s}")
@@ -1544,10 +1597,12 @@ def page_invoices():
                 lines = []
                 for _, r in edited_inv.iterrows():
                     desc = str(r.get("DESCRIPTION") or "").strip()
-                    if not desc:
+                    if not desc or desc.lower() in ("null", "none", "nan"):
                         continue
                     qty = r.get("QTY")
                     amt = r.get("AMOUNT (M)")
+                    if pd.isna(amt) and pd.isna(qty):
+                        continue
                     qty_s = "" if pd.isna(qty) else str(int(qty))
                     amt_s = "0" if pd.isna(amt) else str(float(amt))
                     lines.append(f"{desc} | {qty_s} | {amt_s}")
