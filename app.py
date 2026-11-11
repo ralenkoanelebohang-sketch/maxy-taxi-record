@@ -844,16 +844,24 @@ def money(x):
         return "M 0.00"
 
 def parse_amount(s, default=0.0):
-    """Parse typed amount; blank → default (no need to delete 0.00)."""
+    """Parse typed amount; blank → default. Whole numbers become x.00 style floats."""
     if s is None:
-        return default
+        return float(default)
     t = str(s).strip().replace(",", "").replace("M", "").replace("m", "")
     if t == "":
-        return default
+        return float(default)
     try:
-        return float(t)
+        return round(float(t), 2)
     except Exception:
-        return default
+        return float(default)
+
+
+def format_amount(x):
+    """Always show two decimal places (e.g. 200 → 200.00)."""
+    try:
+        return f"{float(x):.2f}"
+    except Exception:
+        return "0.00"
 
 def vehicle_options():
     return {f"{v['name']} ({v['plate']})": v for v in VEHICLES}
@@ -1044,10 +1052,9 @@ def _auto_driver_for(vehicle_name, plate):
 
 def page_daily_entry():
     st.header("Daily Entry")
-    st.caption("Compact entry · driver auto-fills from the car’s last driver")
+    st.caption("Type whole amounts (e.g. 200) — saved as 200.00 · max 2 entries per car per day")
 
     veh_dict = vehicle_options()
-    # Vehicle outside form so driver can auto-update when car changes
     r1c1, r1c2 = st.columns(2)
     with r1c1:
         record_date = st.date_input("Date", value=date.today(), key="de_date")
@@ -1056,8 +1063,31 @@ def page_daily_entry():
     vehicle = veh_dict[vehicle_label]
     auto_driver = _auto_driver_for(vehicle['name'], vehicle['plate'])
 
+    # How many records already for this car on this date?
+    try:
+        existing = query_df(
+            "SELECT id, duty, cash_collected, fuel_cost, driver_name FROM daily_records WHERE record_date = ? AND plate = ? ORDER BY id",
+            (record_date.isoformat(), vehicle['plate']),
+        )
+        same_day_count = len(existing)
+    except Exception:
+        existing = pd.DataFrame()
+        same_day_count = 0
+
+    if same_day_count >= 2:
+        st.error(
+            f"Already **{same_day_count}** records for **{vehicle['name']}** on **{record_date}**. "
+            "Limit is 2 per car per day. Check **Records → Edit** if one was a mistake."
+        )
+        if not existing.empty:
+            st.dataframe(existing, use_container_width=True, hide_index=True)
+    elif same_day_count == 1:
+        st.warning(
+            f"There is already **1** record for **{vehicle['name']}** on **{record_date}**. "
+            "You can save one more (e.g. Day + Night). A third entry will be blocked."
+        )
+
     with st.form("daily_form", clear_on_submit=True):
-        # Blank fields = 0 (no need to delete 0.00). No +/- buttons (text fields).
         a1, a2, a3, a4 = st.columns(4)
         with a1:
             driver = st.text_input("Driver name", value=auto_driver, help="Auto from this car — edit if different driver")
@@ -1066,17 +1096,17 @@ def page_daily_entry():
         with a3:
             trips_s = st.text_input("Trips", value="", placeholder="e.g. 5")
         with a4:
-            cash_s = st.text_input("Cash (M)", value="", placeholder="Amount")
+            cash_s = st.text_input("Cash (M)", value="", placeholder="e.g. 200 → 200.00")
 
         b1, b2, b3, b4 = st.columns(4)
         with b1:
-            fuel_s = st.text_input("Fuel cost (M)", value="", placeholder="Amount")
+            fuel_s = st.text_input("Fuel cost (M)", value="", placeholder="e.g. 150")
         with b2:
             topup_s = st.text_input("Fuel top-up office (M)", value="", placeholder="Amount")
         with b3:
-            dcomp_s = st.text_input("Driver comp (M)", value="40", placeholder="40")
+            dcomp_s = st.text_input("Driver comp (M)", value="40", placeholder="40.00")
         with b4:
-            airtime_s = st.text_input("Airtime (M)", value="10", placeholder="10")
+            airtime_s = st.text_input("Airtime (M)", value="10", placeholder="10.00")
 
         st.markdown("**Monthly credits / contracts**")
         c1, c2, c3, c4, c5 = st.columns(5)
@@ -1100,34 +1130,75 @@ def page_daily_entry():
         submitted = st.form_submit_button("Save Record", use_container_width=True, type="primary")
 
         if submitted:
-            trips = int(parse_amount(trips_s, 0))
-            cash = parse_amount(cash_s)
-            fuel_cost = parse_amount(fuel_s)
-            fuel_topup = parse_amount(topup_s)
-            driver_comp = parse_amount(dcomp_s, 40.0)
-            airtime = parse_amount(airtime_s, 10.0)
-            credit_alliance = parse_amount(ca_s)
-            credit_lehae = parse_amount(cl_s)
-            credit_worldvision = parse_amount(cw_s)
-            credit_waleslink = parse_amount(cwa_s)
-            credit_lnlvip = parse_amount(cln_s)
-            other_exp = parse_amount(other_s)
+            # Re-check limit at save time
+            try:
+                chk = query_df(
+                    "SELECT COUNT(*) AS n FROM daily_records WHERE record_date = ? AND plate = ?",
+                    (record_date.isoformat(), vehicle['plate']),
+                )
+                n_now = int(chk.iloc[0]['n']) if not chk.empty else 0
+            except Exception:
+                n_now = 0
 
-            execute("""
-                INSERT INTO daily_records 
-                (record_date, vehicle_id, vehicle_name, plate, cash_collected, fuel_cost, fuel_topup,
-                 trips, other_expenses, expense_notes, driver_compensation, airtime, duty,
-                 credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
-                 driver_name, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                record_date.isoformat(), vehicle['id'], vehicle['name'], vehicle['plate'],
-                cash, fuel_cost, fuel_topup, trips, other_exp, exp_notes, driver_comp, airtime, duty,
-                credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
-                driver, duty
-            ))
-            DEFAULT_DRIVERS[vehicle['name']] = driver
-            st.success(f"Saved · {vehicle['name']} · {record_date} · {duty} duty")
+            if n_now >= 2:
+                st.error(
+                    f"Cannot save: already {n_now} records for {vehicle['name']} on {record_date}. "
+                    "Delete or edit an existing one under Records."
+                )
+            else:
+                trips = int(parse_amount(trips_s, 0))
+                cash = parse_amount(cash_s)
+                fuel_cost = parse_amount(fuel_s)
+                fuel_topup = parse_amount(topup_s)
+                driver_comp = parse_amount(dcomp_s, 40.0)
+                airtime = parse_amount(airtime_s, 10.0)
+                credit_alliance = parse_amount(ca_s)
+                credit_lehae = parse_amount(cl_s)
+                credit_worldvision = parse_amount(cw_s)
+                credit_waleslink = parse_amount(cwa_s)
+                credit_lnlvip = parse_amount(cln_s)
+                other_exp = parse_amount(other_s)
+
+                execute("""
+                    INSERT INTO daily_records 
+                    (record_date, vehicle_id, vehicle_name, plate, cash_collected, fuel_cost, fuel_topup,
+                     trips, other_expenses, expense_notes, driver_compensation, airtime, duty,
+                     credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
+                     driver_name, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    record_date.isoformat(), vehicle['id'], vehicle['name'], vehicle['plate'],
+                    cash, fuel_cost, fuel_topup, trips, other_exp, exp_notes, driver_comp, airtime, duty,
+                    credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
+                    driver, duty
+                ))
+                DEFAULT_DRIVERS[vehicle['name']] = driver
+                st.success(
+                    f"Saved · {vehicle['name']} · {record_date} · {duty} · "
+                    f"Cash {format_amount(cash)} · Fuel {format_amount(fuel_cost)}"
+                )
+                st.rerun()
+
+    # Last 5 saved records (always visible for quick check / edit path)
+    st.markdown("---")
+    st.subheader("Last 5 records")
+    try:
+        recent = query_df(
+            "SELECT id, record_date, vehicle_name, driver_name, duty, trips, "
+            "cash_collected, fuel_cost, fuel_topup, driver_compensation, airtime "
+            "FROM daily_records ORDER BY id DESC LIMIT 5"
+        )
+    except Exception:
+        recent = pd.DataFrame()
+    if recent.empty:
+        st.caption("No records yet.")
+    else:
+        show = recent.copy()
+        for col in ['cash_collected', 'fuel_cost', 'fuel_topup', 'driver_compensation', 'airtime']:
+            if col in show.columns:
+                show[col] = show[col].apply(lambda x: format_amount(x))
+        st.dataframe(show, use_container_width=True, hide_index=True)
+        st.caption("To correct a mistake: open **Records** → Edit or Delete.")
 
 def page_records():
     st.header("All Daily Records")
@@ -1211,6 +1282,24 @@ def page_records():
 
     # ===== EDIT / DELETE RECORD =====
     st.markdown("---")
+    st.subheader("Last 5 records")
+    try:
+        recent5 = query_df(
+            "SELECT id, record_date, vehicle_name, driver_name, duty, trips, "
+            "cash_collected, fuel_cost, driver_compensation, airtime "
+            "FROM daily_records ORDER BY id DESC LIMIT 5"
+        )
+    except Exception:
+        recent5 = pd.DataFrame()
+    if not recent5.empty:
+        rshow = recent5.copy()
+        for col in ['cash_collected', 'fuel_cost', 'driver_compensation', 'airtime']:
+            if col in rshow.columns:
+                rshow[col] = rshow[col].apply(lambda x: format_amount(x))
+        st.dataframe(rshow, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No records yet.")
+
     st.subheader("Edit or Delete a Record")
     st.caption("Select a record to correct a mistake or remove it.")
 
