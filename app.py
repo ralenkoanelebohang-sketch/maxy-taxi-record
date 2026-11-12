@@ -146,6 +146,15 @@ st.markdown("""
     div[data-testid="stNumberInput"] button { display: none !important; }
     div[data-testid="stNumberInput"] > div > div > div:last-child { display: none !important; }
 
+    /* Red highlight strip for main daily entry fields */
+    .maxy-red-box {
+        border: 1.5px solid #e74c3c !important;
+        border-radius: 10px !important;
+        padding: 8px 10px !important;
+        margin-bottom: 8px !important;
+        background: #1a0a0a !important;
+    }
+
     /* ===== DATAFRAMES / TABLES ===== */
     .stDataFrame {
         border: 1px solid #2a2a2a !important;
@@ -297,18 +306,22 @@ DEFAULT_DRIVERS = {
 }
 
 # ---------------------- DATABASE (SQLite local OR free cloud Postgres) ----------------------
-def _database_url():
-    """Return Postgres URL from Streamlit secrets if configured, else None."""
+@st.cache_resource
+def _database_url_cached():
+    """Cache secrets lookup — avoids re-reading on every query."""
     try:
         url = st.secrets.get("DATABASE_URL", None)
         if url:
             return str(url)
-        # Allow nested secret: [postgres] url = "..."
         if "postgres" in st.secrets and "url" in st.secrets["postgres"]:
             return str(st.secrets["postgres"]["url"])
     except Exception:
         pass
     return None
+
+
+def _database_url():
+    return _database_url_cached()
 
 
 def using_cloud_db():
@@ -322,21 +335,99 @@ def _adapt_sql(sql):
     return sql
 
 
+# Track pooled connections by id (psycopg2 disallows arbitrary attributes on conn)
+_POOLED_CONN_IDS = set()
+
+
+@st.cache_resource
+def _pg_pool():
+    """Reuse a small connection pool — big speed win vs new SSL connect every query."""
+    url = _database_url()
+    if not url:
+        return None
+    try:
+        from psycopg2 import pool as pg_pool
+        return pg_pool.ThreadedConnectionPool(
+            minconn=1,
+            maxconn=4,
+            dsn=url,
+            sslmode="require",
+            connect_timeout=8,
+        )
+    except Exception:
+        return None
+
+
 def get_conn():
     url = _database_url()
     if url:
         import psycopg2
-        from psycopg2.extras import RealDictCursor
-        # Supabase pooler / Postgres
-        conn = psycopg2.connect(url, sslmode="require")
-        conn.autocommit = False
+        p = _pg_pool()
+        if p is not None:
+            try:
+                conn = p.getconn()
+                try:
+                    conn.autocommit = False
+                except Exception:
+                    pass
+                _POOLED_CONN_IDS.add(id(conn))
+                return conn
+            except Exception:
+                pass
+        conn = psycopg2.connect(url, sslmode="require", connect_timeout=8)
+        try:
+            conn.autocommit = False
+        except Exception:
+            pass
         return conn
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
 
+def release_conn(conn):
+    """Return pooled connection or close."""
+    if conn is None:
+        return
+    try:
+        cid = id(conn)
+        if cid in _POOLED_CONN_IDS:
+            _POOLED_CONN_IDS.discard(cid)
+            p = _pg_pool()
+            if p is not None:
+                try:
+                    p.putconn(conn)
+                    return
+                except Exception:
+                    pass
+        conn.close()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def clear_data_cache():
+    """Call after any insert/update/delete so screens refresh."""
+    try:
+        load_all_records.clear()
+    except Exception:
+        pass
+
+
+@st.cache_resource
+def _init_db_once():
+    """Run table setup only once per server process — avoids slow startup every click."""
+    _init_db_impl()
+    return True
+
+
 def init_db():
+    _init_db_once()
+
+
+def _init_db_impl():
     conn = get_conn()
     c = conn.cursor()
     cloud = using_cloud_db()
@@ -460,15 +551,26 @@ def init_db():
         )
     """)
 
+    # Fixed monthly business expenses (rent, wifi, maintenance, salaries)
+    run_sql(f"""
+        CREATE TABLE IF NOT EXISTS monthly_expenses (
+            {id_col},
+            expense_month TEXT NOT NULL,
+            rent {real_type} DEFAULT 0,
+            wifi {real_type} DEFAULT 0,
+            maintenance {real_type} DEFAULT 0,
+            salaries {real_type} DEFAULT 0,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     try:
         if not cloud:
             conn.commit()
     except Exception:
         pass
-    try:
-        conn.close()
-    except Exception:
-        pass
+    release_conn(conn)
 
 def query_df(sql, params=()):
     conn = get_conn()
@@ -476,22 +578,32 @@ def query_df(sql, params=()):
     try:
         df = pd.read_sql_query(sql, conn, params=params if params else None)
     finally:
-        conn.close()
+        release_conn(conn)
     return df
+
 
 def execute(sql, params=()):
     conn = get_conn()
-    c = conn.cursor()
-    sql = _adapt_sql(sql)
-    c.execute(sql, params)
-    conn.commit()
-    last_id = None
     try:
-        last_id = c.lastrowid
-    except Exception:
+        c = conn.cursor()
+        sql = _adapt_sql(sql)
+        c.execute(sql, params)
+        conn.commit()
         last_id = None
-    conn.close()
+        try:
+            last_id = c.lastrowid
+        except Exception:
+            last_id = None
+    finally:
+        release_conn(conn)
+    clear_data_cache()
     return last_id
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_all_records():
+    """Cached full daily_records pull — speeds up Dashboard / Records / Fleet."""
+    return query_df("SELECT * FROM daily_records")
 
 # ---------------------- PDF HELPERS ----------------------
 def create_pdf_buffer():
@@ -919,10 +1031,11 @@ def total_credits_row(row):
             float(row.get('credit_lnlvip') or 0))
 
 def prepare_records_df():
-    df = query_df("SELECT * FROM daily_records")
-    if df.empty:
-        return df
-    df['record_date'] = pd.to_datetime(df['record_date'])
+    df = load_all_records()
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.copy()
+    df['record_date'] = pd.to_datetime(df['record_date'], errors='coerce')
     df['fy_month'] = df['record_date'].apply(get_fy_label)
     df['credits'] = df.apply(total_credits_row, axis=1)
     for col, default in [
@@ -933,8 +1046,8 @@ def prepare_records_df():
             df[col] = default
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(default)
     if 'duty' not in df.columns:
-        df['duty'] = df.get('notes', 'Day')
-    df['duty'] = df['duty'].fillna('Day').replace('', 'Day')
+        df['duty'] = 'Day'
+    df['duty'] = df['duty'].fillna('Day').astype(str).replace('', 'Day')
     return df
 
 # ---------------------- PAGES ----------------------
@@ -1109,24 +1222,36 @@ def page_daily_entry():
         )
 
     with st.form("daily_form", clear_on_submit=True):
-        a1, a2, a3, a4 = st.columns(4)
+        # Required daily fields — red border, same line
+        st.markdown("""
+        <style>
+        div[data-testid="stForm"] div[data-testid="column"]:has(input) input {
+            border-radius: 8px !important;
+        }
+        </style>
+        <div style="border:1.5px solid #e74c3c; border-radius:10px; padding:10px 8px 4px 8px; margin-bottom:10px;">
+          <p style="color:#e74c3c; font-size:12px; font-weight:700; margin:0 0 6px 0;">MAIN DAILY FIGURES</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        r1, r2, r3, r4, r5 = st.columns(5)
+        with r1:
+            cash_s = st.text_input("Cash (M)", value="", placeholder="e.g. 200")
+        with r2:
+            fuel_s = st.text_input("Fuel cost (M)", value="", placeholder="e.g. 150")
+        with r3:
+            topup_s = st.text_input("Fuel top-up (M)", value="", placeholder="Office")
+        with r4:
+            trips_s = st.text_input("Trips", value="", placeholder="e.g. 5")
+        with r5:
+            duty = st.selectbox("Duty", ["Day", "Night"], index=0)
+
+        a1, a2, a3 = st.columns(3)
         with a1:
             driver = st.text_input("Driver name", value=auto_driver, help="Auto from this car — edit if different driver")
         with a2:
-            duty = st.selectbox("Duty", ["Day", "Night"], index=0)
-        with a3:
-            trips_s = st.text_input("Trips", value="", placeholder="e.g. 5")
-        with a4:
-            cash_s = st.text_input("Cash (M)", value="", placeholder="e.g. 200 → 200.00")
-
-        b1, b2, b3, b4 = st.columns(4)
-        with b1:
-            fuel_s = st.text_input("Fuel cost (M)", value="", placeholder="e.g. 150")
-        with b2:
-            topup_s = st.text_input("Fuel top-up office (M)", value="", placeholder="Amount")
-        with b3:
             dcomp_s = st.text_input("Driver comp (M)", value="40", placeholder="40.00")
-        with b4:
+        with a3:
             airtime_s = st.text_input("Airtime (M)", value="10", placeholder="10.00")
 
         st.markdown("**Monthly credits / contracts**")
@@ -1847,8 +1972,87 @@ def _restore_dataframe(df, table_name, skip_cols=None):
         conn.commit()
     except Exception:
         pass
-    conn.close()
+    release_conn(conn)
+    clear_data_cache()
     return count
+
+
+def page_monthly_expenses():
+    st.header("Monthly Expenses")
+    st.caption("Rent, WiFi, maintenance, salaries · Financial year June–May")
+
+    # Month picker (same FY labels)
+    month_labels = [label for _, _, label in FY_MONTHS]
+    sel_month = st.selectbox("Month", month_labels, key="me_month")
+
+    # Existing row for this month
+    existing = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (sel_month,))
+    if not existing.empty:
+        row = existing.iloc[0]
+        rent0 = float(row.get("rent") or 0)
+        wifi0 = float(row.get("wifi") or 0)
+        maint0 = float(row.get("maintenance") or 0)
+        sal0 = float(row.get("salaries") or 0)
+        notes0 = str(row.get("notes") or "")
+    else:
+        rent0 = wifi0 = maint0 = sal0 = 0.0
+        notes0 = ""
+
+    # Driver compensation total from daily records for this month
+    df = prepare_records_df()
+    if not df.empty:
+        mdf = df[df["fy_month"] == sel_month]
+        driver_comp_total = float(mdf["driver_compensation"].sum()) if not mdf.empty else 0.0
+    else:
+        driver_comp_total = 0.0
+
+    st.markdown("**Fixed monthly costs**")
+    c1, c2 = st.columns(2)
+    with c1:
+        rent_s = st.text_input("Rent (M)", value=format_amount(rent0) if rent0 else "", placeholder="0.00")
+        wifi_s = st.text_input("WiFi (M)", value=format_amount(wifi0) if wifi0 else "", placeholder="0.00")
+    with c2:
+        maint_s = st.text_input("Maintenance (M)", value=format_amount(maint0) if maint0 else "", placeholder="0.00")
+        sal_s = st.text_input("Monthly salaries (M)", value=format_amount(sal0) if sal0 else "", placeholder="0.00")
+    notes = st.text_input("Notes", value=notes0)
+
+    rent = parse_amount(rent_s)
+    wifi = parse_amount(wifi_s)
+    maint = parse_amount(maint_s)
+    salaries = parse_amount(sal_s)
+    fixed_total = rent + wifi + maint + salaries
+    staff_total = driver_comp_total + salaries
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Fixed monthly total", money(fixed_total))
+    m2.metric("Driver compensation (from daily)", money(driver_comp_total))
+    m3.metric("Staff total (comp + salary)", money(staff_total))
+
+    if st.button("Save monthly expenses", type="primary", use_container_width=True):
+        if not existing.empty:
+            execute(
+                "UPDATE monthly_expenses SET rent=?, wifi=?, maintenance=?, salaries=?, notes=? WHERE expense_month=?",
+                (rent, wifi, maint, salaries, notes, sel_month),
+            )
+        else:
+            execute(
+                "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, notes) VALUES (?,?,?,?,?,?)",
+                (sel_month, rent, wifi, maint, salaries, notes),
+            )
+        st.success(f"Saved expenses for {sel_month}")
+        st.rerun()
+
+    st.markdown("---")
+    st.subheader("All months")
+    all_me = query_df("SELECT expense_month, rent, wifi, maintenance, salaries, notes FROM monthly_expenses ORDER BY expense_month")
+    if all_me.empty:
+        st.info("No monthly expenses saved yet.")
+    else:
+        all_me["fixed_total"] = (
+            all_me["rent"].fillna(0) + all_me["wifi"].fillna(0)
+            + all_me["maintenance"].fillna(0) + all_me["salaries"].fillna(0)
+        )
+        st.dataframe(all_me, use_container_width=True, hide_index=True)
 
 
 def page_export():
@@ -2068,18 +2272,19 @@ def main():
         "Records": page_records,
         "Fleet": page_vehicles,
         "Clients": page_clients,
+        "Monthly Expenses": page_monthly_expenses,
         "Quotations": page_quotations,
         "Invoices": page_invoices,
         "Backup / Export": page_export,
     }
 
-    # Icon labels to match professional sidebar design
     menu_labels = {
         "Dashboard": "Dashboard",
         "Daily Entry": "Daily Entry",
         "Records": "Records",
         "Fleet": "Fleet",
         "Clients": "Clients",
+        "Monthly Expenses": "Monthly Expenses",
         "Quotations": "Quotations",
         "Invoices": "Invoices",
         "Backup / Export": "Backup / Export",
