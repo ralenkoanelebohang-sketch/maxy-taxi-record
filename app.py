@@ -297,22 +297,18 @@ DEFAULT_DRIVERS = {
 }
 
 # ---------------------- DATABASE (SQLite local OR free cloud Postgres) ----------------------
-@st.cache_resource
-def _database_url_cached():
-    """Cache secrets lookup — avoids re-reading on every query."""
+def _database_url():
+    """Return Postgres URL from Streamlit secrets if configured, else None."""
     try:
         url = st.secrets.get("DATABASE_URL", None)
         if url:
             return str(url)
+        # Allow nested secret: [postgres] url = "..."
         if "postgres" in st.secrets and "url" in st.secrets["postgres"]:
             return str(st.secrets["postgres"]["url"])
     except Exception:
         pass
     return None
-
-
-def _database_url():
-    return _database_url_cached()
 
 
 def using_cloud_db():
@@ -326,87 +322,21 @@ def _adapt_sql(sql):
     return sql
 
 
-@st.cache_resource
-def _pg_pool():
-    """Reuse a small connection pool — big speed win vs new SSL connect every query."""
-    url = _database_url()
-    if not url:
-        return None
-    try:
-        from psycopg2 import pool as pg_pool
-        return pg_pool.ThreadedConnectionPool(
-            minconn=1,
-            maxconn=4,
-            dsn=url,
-            sslmode="require",
-            connect_timeout=8,
-        )
-    except Exception:
-        return None
-
-
 def get_conn():
     url = _database_url()
     if url:
         import psycopg2
-        p = _pg_pool()
-        if p is not None:
-            try:
-                conn = p.getconn()
-                conn.autocommit = False
-                # mark so we return to pool later
-                conn._maxy_pooled = True
-                return conn
-            except Exception:
-                pass
-        conn = psycopg2.connect(url, sslmode="require", connect_timeout=8)
+        from psycopg2.extras import RealDictCursor
+        # Supabase pooler / Postgres
+        conn = psycopg2.connect(url, sslmode="require")
         conn.autocommit = False
-        conn._maxy_pooled = False
         return conn
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn._maxy_pooled = False
     return conn
 
 
-def release_conn(conn):
-    """Return pooled connection or close."""
-    if conn is None:
-        return
-    try:
-        if getattr(conn, "_maxy_pooled", False):
-            p = _pg_pool()
-            if p is not None:
-                p.putconn(conn)
-                return
-        conn.close()
-    except Exception:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-
-def clear_data_cache():
-    """Call after any insert/update/delete so screens refresh."""
-    try:
-        load_all_records.clear()
-    except Exception:
-        pass
-
-
-@st.cache_resource
-def _init_db_once():
-    """Run table setup only once per server process — avoids slow startup every click."""
-    _init_db_impl()
-    return True
-
-
 def init_db():
-    _init_db_once()
-
-
-def _init_db_impl():
     conn = get_conn()
     c = conn.cursor()
     cloud = using_cloud_db()
@@ -535,7 +465,10 @@ def _init_db_impl():
             conn.commit()
     except Exception:
         pass
-    release_conn(conn)
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 def query_df(sql, params=()):
     conn = get_conn()
@@ -543,32 +476,22 @@ def query_df(sql, params=()):
     try:
         df = pd.read_sql_query(sql, conn, params=params if params else None)
     finally:
-        release_conn(conn)
+        conn.close()
     return df
-
 
 def execute(sql, params=()):
     conn = get_conn()
+    c = conn.cursor()
+    sql = _adapt_sql(sql)
+    c.execute(sql, params)
+    conn.commit()
+    last_id = None
     try:
-        c = conn.cursor()
-        sql = _adapt_sql(sql)
-        c.execute(sql, params)
-        conn.commit()
+        last_id = c.lastrowid
+    except Exception:
         last_id = None
-        try:
-            last_id = c.lastrowid
-        except Exception:
-            last_id = None
-    finally:
-        release_conn(conn)
-    clear_data_cache()
+    conn.close()
     return last_id
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def load_all_records():
-    """Cached full daily_records pull — speeds up Dashboard / Records / Fleet."""
-    return query_df("SELECT * FROM daily_records")
 
 # ---------------------- PDF HELPERS ----------------------
 def create_pdf_buffer():
@@ -996,11 +919,10 @@ def total_credits_row(row):
             float(row.get('credit_lnlvip') or 0))
 
 def prepare_records_df():
-    df = load_all_records()
-    if df is None or df.empty:
-        return pd.DataFrame()
-    df = df.copy()
-    df['record_date'] = pd.to_datetime(df['record_date'], errors='coerce')
+    df = query_df("SELECT * FROM daily_records")
+    if df.empty:
+        return df
+    df['record_date'] = pd.to_datetime(df['record_date'])
     df['fy_month'] = df['record_date'].apply(get_fy_label)
     df['credits'] = df.apply(total_credits_row, axis=1)
     for col, default in [
@@ -1011,8 +933,8 @@ def prepare_records_df():
             df[col] = default
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(default)
     if 'duty' not in df.columns:
-        df['duty'] = 'Day'
-    df['duty'] = df['duty'].fillna('Day').astype(str).replace('', 'Day')
+        df['duty'] = df.get('notes', 'Day')
+    df['duty'] = df['duty'].fillna('Day').replace('', 'Day')
     return df
 
 # ---------------------- PAGES ----------------------
@@ -1925,8 +1847,7 @@ def _restore_dataframe(df, table_name, skip_cols=None):
         conn.commit()
     except Exception:
         pass
-    release_conn(conn)
-    clear_data_cache()
+    conn.close()
     return count
 
 
