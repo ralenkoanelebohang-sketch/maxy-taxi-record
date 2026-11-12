@@ -1792,19 +1792,19 @@ def _restore_dataframe(df, table_name, skip_cols=None):
     """Insert rows from a backup dataframe into a table. Returns count inserted."""
     if df is None or df.empty:
         return 0
-    skip_cols = skip_cols or set()
+    skip_cols = {str(x).lower() for x in (skip_cols or set())}
     df = df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
+    # Normalise headers: strip + lowercase (matches Postgres column names)
+    df.columns = [str(c).strip().lower().replace(" ", "_") for c in df.columns]
     conn = get_conn()
-    # Column list for SQLite or Postgres
     if using_cloud_db():
         existing = pd.read_sql_query(
-            "SELECT column_name AS name FROM information_schema.columns WHERE table_name = %s",
+            "SELECT column_name AS name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = %s",
             conn, params=(table_name,)
         )
     else:
         existing = pd.read_sql_query(f"PRAGMA table_info({table_name})", conn)
-    table_cols = set(existing['name'].tolist())
+    table_cols = {str(n).lower() for n in existing['name'].tolist()}
     use_cols = [c for c in df.columns if c in table_cols and c not in skip_cols]
     if not use_cols:
         conn.close()
@@ -1816,6 +1816,7 @@ def _restore_dataframe(df, table_name, skip_cols=None):
     col_list = ", ".join(use_cols)
     sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
     count = 0
+    errors = 0
     c = conn.cursor()
     for _, row in df.iterrows():
         values = []
@@ -1825,15 +1826,27 @@ def _restore_dataframe(df, table_name, skip_cols=None):
                 if pd.isna(v):
                     values.append(None)
                 else:
-                    values.append(v)
+                    # Dates → text ISO
+                    if hasattr(v, "isoformat"):
+                        values.append(v.isoformat()[:10] if col.endswith("date") or col == "record_date" else v.isoformat())
+                    else:
+                        values.append(v)
             except Exception:
                 values.append(v)
         try:
             c.execute(sql, tuple(values))
             count += 1
         except Exception:
+            errors += 1
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             continue
-    conn.commit()
+    try:
+        conn.commit()
+    except Exception:
+        pass
     conn.close()
     return count
 
@@ -1900,7 +1913,7 @@ After that, data survives sleep and restarts.
     )
 
     if uploaded is not None:
-        st.info(f"File ready: **{uploaded.name}**")
+        st.info(f"File ready: **{uploaded.name}** ({uploaded.size} bytes)")
         if st.button("Restore now", type="primary", use_container_width=True):
             try:
                 name = uploaded.name.lower()
@@ -1908,28 +1921,39 @@ After that, data survives sleep and restarts.
                 if name.endswith(".csv"):
                     sheets["Daily Records"] = pd.read_csv(uploaded)
                 else:
-                    xl = pd.ExcelFile(uploaded)
+                    # Read bytes so Streamlit mobile uploads work reliably
+                    data = uploaded.getvalue()
+                    xl = pd.ExcelFile(BytesIO(data))
                     for sheet in xl.sheet_names:
                         sheets[sheet] = pd.read_excel(xl, sheet_name=sheet)
 
+                st.write("Sheets found:", ", ".join(sheets.keys()) if sheets else "(none)")
+
                 if replace_all:
                     conn = get_conn()
+                    cur = conn.cursor()
                     for t in ["daily_records", "clients", "quotations", "invoices"]:
-                        conn.execute(f"DELETE FROM {t}")
+                        try:
+                            cur.execute(f"DELETE FROM {t}")
+                        except Exception as del_err:
+                            st.warning(f"Could not clear {t}: {del_err}")
                     conn.commit()
+                    conn.close()
 
-                # Map possible sheet names
+                # Map possible sheet names (flexible)
                 def find_sheet(options):
                     for s in sheets:
                         if s.strip().lower() in options:
                             return sheets[s]
                     return None
 
-                n_rec = _restore_dataframe(
-                    find_sheet({"daily records", "daily_records", "records"}),
-                    "daily_records",
-                    skip_cols={"id"}  # new ids; avoids conflicts
-                )
+                daily_df = find_sheet({"daily records", "daily_records", "records", "daily"})
+                # If only one sheet and no name match, use it as daily records
+                if daily_df is None and len(sheets) == 1:
+                    daily_df = list(sheets.values())[0]
+                    st.info("Using the only sheet in the file as Daily Records.")
+
+                n_rec = _restore_dataframe(daily_df, "daily_records", skip_cols={"id"})
                 n_cli = _restore_dataframe(
                     find_sheet({"clients", "client"}),
                     "clients",
@@ -1946,16 +1970,24 @@ After that, data survives sleep and restarts.
                     skip_cols={"id"}
                 )
 
-                st.success(
-                    f"Restore complete!\n\n"
-                    f"- Daily records: **{n_rec}**\n"
-                    f"- Clients: **{n_cli}**\n"
-                    f"- Quotations: **{n_qt}**\n"
-                    f"- Invoices: **{n_inv}**"
-                )
-                st.balloons()
+                if n_rec + n_cli + n_qt + n_inv == 0:
+                    st.error(
+                        "No rows were imported. Check that your Excel has a sheet named "
+                        "**Daily Records** (or one sheet with columns like record_date, vehicle_name, cash_collected)."
+                    )
+                else:
+                    st.success(
+                        f"Restore complete!\n\n"
+                        f"- Daily records: **{n_rec}**\n"
+                        f"- Clients: **{n_cli}**\n"
+                        f"- Quotations: **{n_qt}**\n"
+                        f"- Invoices: **{n_inv}**"
+                    )
+                    st.balloons()
             except Exception as e:
                 st.error(f"Restore failed: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
     st.markdown("---")
 
