@@ -234,55 +234,81 @@ def check_password():
     if st.session_state.authenticated:
         return True
 
+    # Clean Christmas-inspired login (no screenshots) — gold + festive accents
     st.markdown("""
     <style>
     .stApp {
-        background: radial-gradient(ellipse at top, #1a1208 0%, #050505 45%, #0a0505 100%) !important;
+        background:
+          radial-gradient(ellipse 120% 70% at 50% -15%, #3d2a0a 0%, transparent 50%),
+          radial-gradient(ellipse at bottom, #140808 0%, #050505 65%) !important;
     }
-    .xmas-caption {
-        text-align: center; color: #f5d76e; font-size: 13px; letter-spacing: 2px;
-        font-weight: 600; margin: 8px 0 10px 0;
+    .xmas-card {
+        max-width: 400px;
+        margin: 5vh auto 0 auto;
+        padding: 26px 20px 18px 20px;
+        border-radius: 20px;
+        background: linear-gradient(165deg, rgba(45,32,12,0.97) 0%, rgba(12,10,8,0.99) 100%);
+        border: 1px solid #c9a22755;
+        box-shadow: 0 0 50px rgba(201,162,39,0.12), 0 14px 40px rgba(0,0,0,0.55);
+        text-align: center;
     }
+    .xmas-hat { font-size: 34px; line-height: 1; margin-bottom: -4px; }
+    .xmas-name {
+        font-size: 26px; font-weight: 800; color: #ffd700;
+        letter-spacing: 1px; margin: 6px 0 2px 0;
+        text-shadow: 0 0 16px rgba(255,215,0,0.3);
+    }
+    .xmas-tag {
+        color: #e8d5a3; font-size: 11px; letter-spacing: 3px;
+        font-weight: 700; margin: 0 0 12px 0;
+    }
+    .xmas-label { color: #c9a227; font-size: 12px; margin: 0 0 4px 0; }
     .xmas-footer {
-        text-align: center; color: #8a7a55; font-size: 11px; margin-top: 14px;
+        text-align: center; color: #7a6a48; font-size: 11px; margin-top: 16px;
     }
     div.stButton > button[kind="primary"] {
-        background: linear-gradient(180deg, #ffd700 0%, #c9a227 100%) !important;
+        background: linear-gradient(180deg, #ffd700 0%, #c9a227 55%, #a67c00 100%) !important;
         color: #1a1200 !important;
         border: none !important;
         font-weight: 800 !important;
-        border-radius: 12px !important;
-        box-shadow: 0 4px 20px rgba(245, 196, 50, 0.45) !important;
-        height: 3rem !important;
+        font-size: 16px !important;
+        border-radius: 14px !important;
+        box-shadow: 0 4px 22px rgba(245, 196, 50, 0.4) !important;
+        height: 3.1rem !important;
     }
     .stTextInput input {
-        background: rgba(20,15,8,0.9) !important;
-        border: 1px solid #c9a22799 !important;
+        background: rgba(15,12,8,0.92) !important;
+        border: 1px solid #c9a22788 !important;
         border-radius: 12px !important;
         color: #f5e6c8 !important;
+        text-align: center !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    col_a, col_b, col_c = st.columns([0.3, 2.4, 0.3])
+    col_a, col_b, col_c = st.columns([0.5, 2, 0.5])
     with col_b:
-        hero = os.path.join(os.path.dirname(__file__), "login_christmas_hero.jpg")
-        hero2 = os.path.join(os.path.dirname(__file__), "login_christmas.jpg")
-        if os.path.exists(hero):
-            st.image(hero, use_container_width=True)
-        elif os.path.exists(hero2):
-            st.image(hero2, use_container_width=True)
-        else:
-            st.markdown(
-                "<h1 style='text-align:center;color:#ffd700;'>Maxy Taxi</h1>"
-                "<p style='text-align:center;color:#f5d76e;'>SAFE · QUICK · RELIABLE</p>",
-                unsafe_allow_html=True,
-            )
+        st.markdown('<div class="xmas-card">', unsafe_allow_html=True)
+        st.markdown('<div class="xmas-hat">🎅</div>', unsafe_allow_html=True)
 
-        st.markdown(
-            "<p class='xmas-caption'>Business Records Login · Season's Greetings</p>",
-            unsafe_allow_html=True,
-        )
+        logo = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
+        logo2 = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
+        logo3 = os.path.join(os.path.dirname(__file__), "logo_clean.png")
+        if os.path.exists(logo):
+            st.image(logo, use_container_width=True)
+        elif os.path.exists(logo2):
+            st.image(logo2, use_container_width=True)
+        elif os.path.exists(logo3):
+            st.image(logo3, use_container_width=True)
+
+        st.markdown("""
+            <p class="xmas-name">Maxy Taxi</p>
+            <p class="xmas-tag">SAFE · QUICK · RELIABLE</p>
+            <p class="xmas-label">Business Records Login</p>
+        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
         password = st.text_input(
             "Password",
             type="password",
