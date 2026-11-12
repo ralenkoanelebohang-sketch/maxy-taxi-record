@@ -236,55 +236,60 @@ def check_password():
 
     st.markdown("""
     <style>
-    .login-wrap {
-        max-width: 420px; margin: 8vh auto 0 auto;
-        background: radial-gradient(ellipse at top, #2a1f0a 0%, #0c0c0c 55%, #050505 100%);
-        border: 1px solid #f5a62366;
-        border-radius: 22px;
-        padding: 28px 24px 26px 24px;
-        box-shadow: 0 0 0 1px #f5a62322, 0 20px 60px rgba(245,166,35,0.12), 0 8px 32px rgba(0,0,0,0.65);
+    .stApp {
+        background: radial-gradient(ellipse at top, #1a1208 0%, #050505 45%, #0a0505 100%) !important;
     }
-    .login-badge {
-        display:inline-block; background: linear-gradient(90deg,#f5a623,#ffcc33);
-        color:#111; font-size:10px; font-weight:800; letter-spacing:2px;
-        padding:4px 10px; border-radius:999px; margin-bottom:10px;
+    .xmas-caption {
+        text-align: center; color: #f5d76e; font-size: 13px; letter-spacing: 2px;
+        font-weight: 600; margin: 8px 0 10px 0;
     }
-    .login-title {
-        text-align:center; color:#fff; font-size:22px; font-weight:800;
-        margin: 8px 0 2px 0; letter-spacing:0.5px;
+    .xmas-footer {
+        text-align: center; color: #8a7a55; font-size: 11px; margin-top: 14px;
     }
-    .login-sub {
-        text-align:center; color:#f5a623; font-size:11px; letter-spacing:3px;
-        font-weight:700; margin: 0 0 14px 0;
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(180deg, #ffd700 0%, #c9a227 100%) !important;
+        color: #1a1200 !important;
+        border: none !important;
+        font-weight: 800 !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 20px rgba(245, 196, 50, 0.45) !important;
+        height: 3rem !important;
     }
-    .login-hint {
-        text-align:center; color:#888; font-size:13px; margin: 0 0 6px 0;
+    .stTextInput input {
+        background: rgba(20,15,8,0.9) !important;
+        border: 1px solid #c9a22799 !important;
+        border-radius: 12px !important;
+        color: #f5e6c8 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    col_a, col_b, col_c = st.columns([0.6, 2.2, 0.6])
+    col_a, col_b, col_c = st.columns([0.3, 2.4, 0.3])
     with col_b:
-        st.markdown('<div class="login-wrap">', unsafe_allow_html=True)
-        st.markdown('<div style="text-align:center"><span class="login-badge">SECURE ACCESS</span></div>', unsafe_allow_html=True)
-        logo_dark = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
-        logo_trans = os.path.join(os.path.dirname(__file__), "logo_transparent.png")
-        logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
-        if os.path.exists(logo_dark):
-            st.image(logo_dark, use_container_width=True)
-        elif os.path.exists(logo_trans):
-            st.image(logo_trans, use_container_width=True)
-        elif os.path.exists(logo_clean):
-            st.image(logo_clean, use_container_width=True)
-        st.markdown("""
-            <p class="login-sub">SAFE · QUICK · RELIABLE</p>
-            <p class="login-title">Maxy Taxi</p>
-            <p class="login-hint">Business Records · Private Login</p>
-        """, unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        password = st.text_input("Password", type="password", key="password_input",
-                                 label_visibility="collapsed", placeholder="Enter password")
+        hero = os.path.join(os.path.dirname(__file__), "login_christmas_hero.jpg")
+        hero2 = os.path.join(os.path.dirname(__file__), "login_christmas.jpg")
+        if os.path.exists(hero):
+            st.image(hero, use_container_width=True)
+        elif os.path.exists(hero2):
+            st.image(hero2, use_container_width=True)
+        else:
+            st.markdown(
+                "<h1 style='text-align:center;color:#ffd700;'>Maxy Taxi</h1>"
+                "<p style='text-align:center;color:#f5d76e;'>SAFE · QUICK · RELIABLE</p>",
+                unsafe_allow_html=True,
+            )
+
+        st.markdown(
+            "<p class='xmas-caption'>Business Records Login · Season's Greetings</p>",
+            unsafe_allow_html=True,
+        )
+        password = st.text_input(
+            "Password",
+            type="password",
+            key="password_input",
+            label_visibility="collapsed",
+            placeholder="Enter password",
+        )
         if st.button("Login", type="primary", use_container_width=True):
             if password == APP_PASSWORD:
                 st.session_state.authenticated = True
@@ -292,8 +297,7 @@ def check_password():
             else:
                 st.error("Incorrect password. Please try again.")
         st.markdown(
-            "<p style='text-align:center;color:#555;font-size:11px;margin-top:18px;'>"
-            "Maxy Taxi Transport · Maseru</p>",
+            "<p class='xmas-footer'>Maxy Taxi Transport · Maseru · Merry Christmas</p>",
             unsafe_allow_html=True,
         )
     st.stop()
@@ -2296,6 +2300,12 @@ def main():
     st.sidebar.markdown("""
         <p style="text-align:center; color:#f5a623; font-size:11px; letter-spacing:1.5px; margin:6px 0 0 0; font-weight:600;">
         SAFE • QUICK • RELIABLE
+        </p>
+        <p style="text-align:center; color:#e74c3c; font-size:12px; margin:8px 0 0 0; font-weight:700;">
+        Merry Christmas
+        </p>
+        <p style="text-align:center; color:#c9a227; font-size:10px; margin:2px 0 0 0;">
+        Season of safe journeys
         </p>
     </div>
     """, unsafe_allow_html=True)
