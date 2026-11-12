@@ -234,14 +234,39 @@ def check_password():
     if st.session_state.authenticated:
         return True
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    col_a, col_b, col_c = st.columns([1, 2, 1])
+    st.markdown("""
+    <style>
+    .login-wrap {
+        max-width: 420px; margin: 8vh auto 0 auto;
+        background: radial-gradient(ellipse at top, #2a1f0a 0%, #0c0c0c 55%, #050505 100%);
+        border: 1px solid #f5a62366;
+        border-radius: 22px;
+        padding: 28px 24px 26px 24px;
+        box-shadow: 0 0 0 1px #f5a62322, 0 20px 60px rgba(245,166,35,0.12), 0 8px 32px rgba(0,0,0,0.65);
+    }
+    .login-badge {
+        display:inline-block; background: linear-gradient(90deg,#f5a623,#ffcc33);
+        color:#111; font-size:10px; font-weight:800; letter-spacing:2px;
+        padding:4px 10px; border-radius:999px; margin-bottom:10px;
+    }
+    .login-title {
+        text-align:center; color:#fff; font-size:22px; font-weight:800;
+        margin: 8px 0 2px 0; letter-spacing:0.5px;
+    }
+    .login-sub {
+        text-align:center; color:#f5a623; font-size:11px; letter-spacing:3px;
+        font-weight:700; margin: 0 0 14px 0;
+    }
+    .login-hint {
+        text-align:center; color:#888; font-size:13px; margin: 0 0 6px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col_a, col_b, col_c = st.columns([0.6, 2.2, 0.6])
     with col_b:
-        st.markdown("""
-        <div style="background: linear-gradient(145deg, #1a1a1a, #111);
-                    border: 1px solid #f5a62355; border-radius: 16px;
-                    padding: 28px 22px 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.55);">
-        """, unsafe_allow_html=True)
+        st.markdown('<div class="login-wrap">', unsafe_allow_html=True)
+        st.markdown('<div style="text-align:center"><span class="login-badge">SECURE ACCESS</span></div>', unsafe_allow_html=True)
         logo_dark = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
         logo_trans = os.path.join(os.path.dirname(__file__), "logo_transparent.png")
         logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
@@ -252,12 +277,12 @@ def check_password():
         elif os.path.exists(logo_clean):
             st.image(logo_clean, use_container_width=True)
         st.markdown("""
-            <p style='text-align:center; color:#f5a623; font-size:11px; letter-spacing:2.5px;
-                       margin: 10px 0 2px 0; font-weight:600;'>SAFE • QUICK • RELIABLE</p>
-            <p style='text-align:center; color:#777; font-size:13px; margin: 14px 0 4px 0;'>Business Records Login</p>
-        </div>
+            <p class="login-sub">SAFE · QUICK · RELIABLE</p>
+            <p class="login-title">Maxy Taxi</p>
+            <p class="login-hint">Business Records · Private Login</p>
         """, unsafe_allow_html=True)
-        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
         password = st.text_input("Password", type="password", key="password_input",
                                  label_visibility="collapsed", placeholder="Enter password")
         if st.button("Login", type="primary", use_container_width=True):
@@ -266,6 +291,11 @@ def check_password():
                 st.rerun()
             else:
                 st.error("Incorrect password. Please try again.")
+        st.markdown(
+            "<p style='text-align:center;color:#555;font-size:11px;margin-top:18px;'>"
+            "Maxy Taxi Transport · Maseru</p>",
+            unsafe_allow_html=True,
+        )
     st.stop()
 
 # Run password check first
@@ -551,7 +581,7 @@ def _init_db_impl():
         )
     """)
 
-    # Fixed monthly business expenses (rent, wifi, maintenance, salaries)
+    # Fixed monthly business expenses
     run_sql(f"""
         CREATE TABLE IF NOT EXISTS monthly_expenses (
             {id_col},
@@ -560,10 +590,14 @@ def _init_db_impl():
             wifi {real_type} DEFAULT 0,
             maintenance {real_type} DEFAULT 0,
             salaries {real_type} DEFAULT 0,
+            car_wash {real_type} DEFAULT 0,
+            miscellaneous {real_type} DEFAULT 0,
             notes TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    run_sql(f"ALTER TABLE monthly_expenses ADD COLUMN car_wash {real_type} DEFAULT 0")
+    run_sql(f"ALTER TABLE monthly_expenses ADD COLUMN miscellaneous {real_type} DEFAULT 0")
 
     try:
         if not cloud:
@@ -959,10 +993,9 @@ def generate_quotation_pdf(quote, client=None):
         canvas.line(12*mm, 16*mm, page_w - 12*mm, 16*mm)
         canvas.setFont('Helvetica', 8)
         canvas.setFillColor(colors.HexColor("#555555"))
-        canvas.drawCentredString(page_w/2, 10*mm, "This quotation is valid until the date shown. Prices are in Lesotho Loti (M).")
-        canvas.setFont('Helvetica-Bold', 9)
+        canvas.setFont('Helvetica-Bold', 10)
         canvas.setFillColor(colors.HexColor("#1a1a1a"))
-        canvas.drawCentredString(page_w/2, 5.5*mm, "Thank you for considering Maxy Taxi Transport.")
+        canvas.drawCentredString(page_w/2, 8*mm, "Thank you for considering Maxy Taxi Transport.")
         canvas.restoreState()
 
     doc.build(elements, onFirstPage=_draw_quote_footer, onLaterPages=_draw_quote_footer)
@@ -1669,15 +1702,14 @@ def page_quotations():
         </div>
         """, unsafe_allow_html=True)
 
-        if "qt_lines" not in st.session_state:
-            st.session_state.qt_lines = pd.DataFrame({
-                "DESCRIPTION": ["", "", ""],
-                "QTY": [None, None, None],
-                "AMOUNT (M)": [None, None, None],
-            })
-
+        # data_editor keeps its own state via key — do NOT write back every run (that wipes first edit)
+        _qt_seed = pd.DataFrame({
+            "DESCRIPTION": ["", "", ""],
+            "QTY": [None, None, None],
+            "AMOUNT (M)": [None, None, None],
+        })
         edited_qt = st.data_editor(
-            st.session_state.qt_lines,
+            _qt_seed,
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
@@ -1688,7 +1720,6 @@ def page_quotations():
                 "AMOUNT (M)": st.column_config.NumberColumn("AMOUNT (M)", min_value=0.0, step=50.0, format="%.2f"),
             }
         )
-        st.session_state.qt_lines = edited_qt
 
         try:
             qt_total = float(pd.to_numeric(edited_qt["AMOUNT (M)"], errors="coerce").fillna(0).sum())
@@ -1734,11 +1765,8 @@ def page_quotations():
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (quote_number, None, client_name.strip(), quote_date.isoformat(), valid_until,
                       description, total_amount, status, notes or ""))
-                st.session_state.qt_lines = pd.DataFrame({
-                    "DESCRIPTION": ["", "", ""],
-                    "QTY": [None, None, None],
-                    "AMOUNT (M)": [None, None, None],
-                })
+                if "qt_line_editor" in st.session_state:
+                    del st.session_state["qt_line_editor"]
                 st.success(f"Quotation {quote_number} created!")
                 st.rerun()
 
@@ -1796,15 +1824,14 @@ def page_invoices():
         </div>
         """, unsafe_allow_html=True)
 
-        if "inv_lines" not in st.session_state:
-            st.session_state.inv_lines = pd.DataFrame({
-                "DESCRIPTION": ["", "", ""],
-                "QTY": [None, None, None],
-                "AMOUNT (M)": [None, None, None],
-            })
-
+        # data_editor keeps its own state via key — do NOT write back every run
+        _inv_seed = pd.DataFrame({
+            "DESCRIPTION": ["", "", ""],
+            "QTY": [None, None, None],
+            "AMOUNT (M)": [None, None, None],
+        })
         edited_inv = st.data_editor(
-            st.session_state.inv_lines,
+            _inv_seed,
             num_rows="dynamic",
             use_container_width=True,
             hide_index=True,
@@ -1815,9 +1842,7 @@ def page_invoices():
                 "AMOUNT (M)": st.column_config.NumberColumn("AMOUNT (M)", min_value=0.0, step=50.0, format="%.2f"),
             }
         )
-        st.session_state.inv_lines = edited_inv
 
-        # Auto total from table
         try:
             auto_total = float(pd.to_numeric(edited_inv["AMOUNT (M)"], errors="coerce").fillna(0).sum())
         except Exception:
@@ -1864,11 +1889,8 @@ def page_invoices():
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (inv_number, None, client_name.strip(), inv_date.isoformat(), due_date,
                       description, total_amount, 0.0, status, qid, ""))
-                st.session_state.inv_lines = pd.DataFrame({
-                    "DESCRIPTION": ["", "", ""],
-                    "QTY": [None, None, None],
-                    "AMOUNT (M)": [None, None, None],
-                })
+                if "inv_line_editor" in st.session_state:
+                    del st.session_state["inv_line_editor"]
                 st.success(f"Invoice {inv_number} created!")
                 st.rerun()
 
@@ -1985,7 +2007,6 @@ def page_monthly_expenses():
     month_labels = [label for _, _, label in FY_MONTHS]
     sel_month = st.selectbox("Month", month_labels, key="me_month")
 
-    # Existing row for this month
     existing = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (sel_month,))
     if not existing.empty:
         row = existing.iloc[0]
@@ -1993,12 +2014,13 @@ def page_monthly_expenses():
         wifi0 = float(row.get("wifi") or 0)
         maint0 = float(row.get("maintenance") or 0)
         sal0 = float(row.get("salaries") or 0)
+        wash0 = float(row.get("car_wash") or 0)
+        misc0 = float(row.get("miscellaneous") or 0)
         notes0 = str(row.get("notes") or "")
     else:
-        rent0 = wifi0 = maint0 = sal0 = 0.0
+        rent0 = wifi0 = maint0 = sal0 = wash0 = misc0 = 0.0
         notes0 = ""
 
-    # Driver compensation total from daily records for this month
     df = prepare_records_df()
     if not df.empty:
         mdf = df[df["fy_month"] == sel_month]
@@ -2007,20 +2029,25 @@ def page_monthly_expenses():
         driver_comp_total = 0.0
 
     st.markdown("**Fixed monthly costs**")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         rent_s = st.text_input("Rent (M)", value=format_amount(rent0) if rent0 else "", placeholder="0.00")
         wifi_s = st.text_input("WiFi (M)", value=format_amount(wifi0) if wifi0 else "", placeholder="0.00")
     with c2:
         maint_s = st.text_input("Maintenance (M)", value=format_amount(maint0) if maint0 else "", placeholder="0.00")
         sal_s = st.text_input("Monthly salaries (M)", value=format_amount(sal0) if sal0 else "", placeholder="0.00")
+    with c3:
+        wash_s = st.text_input("Car wash (M)", value=format_amount(wash0) if wash0 else "", placeholder="0.00")
+        misc_s = st.text_input("Miscellaneous (M)", value=format_amount(misc0) if misc0 else "", placeholder="0.00")
     notes = st.text_input("Notes", value=notes0)
 
     rent = parse_amount(rent_s)
     wifi = parse_amount(wifi_s)
     maint = parse_amount(maint_s)
     salaries = parse_amount(sal_s)
-    fixed_total = rent + wifi + maint + salaries
+    car_wash = parse_amount(wash_s)
+    miscellaneous = parse_amount(misc_s)
+    fixed_total = rent + wifi + maint + salaries + car_wash + miscellaneous
     staff_total = driver_comp_total + salaries
 
     m1, m2, m3 = st.columns(3)
@@ -2031,26 +2058,33 @@ def page_monthly_expenses():
     if st.button("Save monthly expenses", type="primary", use_container_width=True):
         if not existing.empty:
             execute(
-                "UPDATE monthly_expenses SET rent=?, wifi=?, maintenance=?, salaries=?, notes=? WHERE expense_month=?",
-                (rent, wifi, maint, salaries, notes, sel_month),
+                "UPDATE monthly_expenses SET rent=?, wifi=?, maintenance=?, salaries=?, car_wash=?, miscellaneous=?, notes=? WHERE expense_month=?",
+                (rent, wifi, maint, salaries, car_wash, miscellaneous, notes, sel_month),
             )
         else:
             execute(
-                "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, notes) VALUES (?,?,?,?,?,?)",
-                (sel_month, rent, wifi, maint, salaries, notes),
+                "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?)",
+                (sel_month, rent, wifi, maint, salaries, car_wash, miscellaneous, notes),
             )
         st.success(f"Saved expenses for {sel_month}")
         st.rerun()
 
     st.markdown("---")
     st.subheader("All months")
-    all_me = query_df("SELECT expense_month, rent, wifi, maintenance, salaries, notes FROM monthly_expenses ORDER BY expense_month")
+    all_me = query_df(
+        "SELECT expense_month, rent, wifi, maintenance, salaries, car_wash, miscellaneous, notes "
+        "FROM monthly_expenses ORDER BY expense_month"
+    )
     if all_me.empty:
         st.info("No monthly expenses saved yet.")
     else:
+        for col in ["rent", "wifi", "maintenance", "salaries", "car_wash", "miscellaneous"]:
+            if col not in all_me.columns:
+                all_me[col] = 0
+            all_me[col] = pd.to_numeric(all_me[col], errors="coerce").fillna(0)
         all_me["fixed_total"] = (
-            all_me["rent"].fillna(0) + all_me["wifi"].fillna(0)
-            + all_me["maintenance"].fillna(0) + all_me["salaries"].fillna(0)
+            all_me["rent"] + all_me["wifi"] + all_me["maintenance"]
+            + all_me["salaries"] + all_me["car_wash"] + all_me["miscellaneous"]
         )
         st.dataframe(all_me, use_container_width=True, hide_index=True)
 
