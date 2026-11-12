@@ -341,6 +341,33 @@ def init_db():
     c = conn.cursor()
     cloud = using_cloud_db()
 
+    # Postgres: use autocommit so a failed ALTER does not abort later CREATE TABLE
+    if cloud:
+        try:
+            conn.set_session(autocommit=True)
+        except Exception:
+            try:
+                conn.autocommit = True
+            except Exception:
+                pass
+
+    def run_sql(sql):
+        try:
+            c.execute(sql)
+            if not cloud:
+                conn.commit()
+            return True
+        except Exception:
+            if not cloud:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            else:
+                # With autocommit each statement is independent
+                pass
+            return False
+
     # Compatible DDL for SQLite and Postgres
     if cloud:
         id_col = "id SERIAL PRIMARY KEY"
@@ -349,7 +376,7 @@ def init_db():
         id_col = "id INTEGER PRIMARY KEY AUTOINCREMENT"
         real_type = "REAL"
 
-    c.execute(f"""
+    run_sql(f"""
         CREATE TABLE IF NOT EXISTS daily_records (
             {id_col},
             record_date TEXT NOT NULL,
@@ -376,29 +403,16 @@ def init_db():
         )
     """)
 
-    # Add columns if missing (upgrade path)
+    # Add columns if missing (safe on both SQLite and Postgres)
     for col, default in [
         ("credit_alliance", "0"), ("credit_lehae", "0"), ("credit_worldvision", "0"),
         ("credit_waleslink", "0"), ("credit_lnlvip", "0"), ("fuel_topup", "0"),
         ("driver_compensation", "40"), ("airtime", "10"),
     ]:
-        try:
-            c.execute(f"ALTER TABLE daily_records ADD COLUMN {col} {real_type} DEFAULT {default}")
-        except Exception:
-            pass
-    try:
-        c.execute("ALTER TABLE daily_records ADD COLUMN duty TEXT DEFAULT 'Day'")
-    except Exception:
-        pass
-    # Ensure airtime/duty exist on brand-new tables created before these fields
-    try:
-        if cloud:
-            c.execute(f"ALTER TABLE daily_records ADD COLUMN IF NOT EXISTS airtime {real_type} DEFAULT 10")
-            c.execute("ALTER TABLE daily_records ADD COLUMN IF NOT EXISTS duty TEXT DEFAULT 'Day'")
-    except Exception:
-        pass
+        run_sql(f"ALTER TABLE daily_records ADD COLUMN {col} {real_type} DEFAULT {default}")
+    run_sql("ALTER TABLE daily_records ADD COLUMN duty TEXT DEFAULT 'Day'")
 
-    c.execute(f"""
+    run_sql(f"""
         CREATE TABLE IF NOT EXISTS clients (
             {id_col},
             name TEXT NOT NULL,
@@ -412,7 +426,7 @@ def init_db():
         )
     """)
 
-    c.execute(f"""
+    run_sql(f"""
         CREATE TABLE IF NOT EXISTS quotations (
             {id_col},
             quote_number TEXT UNIQUE,
@@ -428,7 +442,7 @@ def init_db():
         )
     """)
 
-    c.execute(f"""
+    run_sql(f"""
         CREATE TABLE IF NOT EXISTS invoices (
             {id_col},
             invoice_number TEXT UNIQUE,
@@ -446,8 +460,15 @@ def init_db():
         )
     """)
 
-    conn.commit()
-    conn.close()
+    try:
+        if not cloud:
+            conn.commit()
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 def query_df(sql, params=()):
     conn = get_conn()
