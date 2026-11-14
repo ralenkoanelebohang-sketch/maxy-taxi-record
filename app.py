@@ -499,6 +499,47 @@ def _init_db_once():
 
 def init_db():
     _init_db_once()
+    ensure_extra_tables()
+
+
+def ensure_extra_tables():
+    """Create incidents / parts tables if missing (fixes UndefinedTable after deploy)."""
+    cloud = using_cloud_db()
+    real_type = "DOUBLE PRECISION" if cloud else "REAL"
+    id_col = "id SERIAL PRIMARY KEY" if cloud else "id INTEGER PRIMARY KEY AUTOINCREMENT"
+    conn = get_conn()
+    try:
+        if cloud:
+            try:
+                conn.set_session(autocommit=True)
+            except Exception:
+                try:
+                    conn.autocommit = True
+                except Exception:
+                    pass
+        c = conn.cursor()
+        for sql in [
+            f"""CREATE TABLE IF NOT EXISTS incidents (
+                {id_col}, incident_date TEXT NOT NULL, vehicle_name TEXT, plate TEXT,
+                category TEXT, amount {real_type} DEFAULT 0, notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP)""",
+            f"""CREATE TABLE IF NOT EXISTS parts_workshop (
+                {id_col}, entry_date TEXT NOT NULL, vehicle_name TEXT, plate TEXT,
+                item TEXT, amount {real_type} DEFAULT 0, notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP)""",
+        ]:
+            try:
+                c.execute(sql)
+                if not cloud:
+                    conn.commit()
+            except Exception:
+                if not cloud:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+    finally:
+        release_conn(conn)
 
 
 def _init_db_impl():
@@ -2071,92 +2112,143 @@ def _restore_dataframe(df, table_name, skip_cols=None):
 
 def page_monthly_expenses():
     st.header("Monthly Expenses")
-    st.caption("Rent, WiFi, maintenance, salaries · Financial year June–May")
+    st.caption("Fixed costs · incidents & fines · parts & workshop")
 
-    # Month picker (same FY labels)
-    month_labels = [label for _, _, label in FY_MONTHS]
-    sel_month = st.selectbox("Month", month_labels, key="me_month")
+    tab_fixed, tab_inc, tab_parts = st.tabs(["Fixed monthly", "Incidents & fines", "Parts & workshop"])
 
-    existing = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (sel_month,))
-    if not existing.empty:
-        row = existing.iloc[0]
-        rent0 = float(row.get("rent") or 0)
-        wifi0 = float(row.get("wifi") or 0)
-        maint0 = float(row.get("maintenance") or 0)
-        sal0 = float(row.get("salaries") or 0)
-        wash0 = float(row.get("car_wash") or 0)
-        misc0 = float(row.get("miscellaneous") or 0)
-        notes0 = str(row.get("notes") or "")
-    else:
-        rent0 = wifi0 = maint0 = sal0 = wash0 = misc0 = 0.0
-        notes0 = ""
+    with tab_fixed:
+        month_labels = [label for _, _, label in FY_MONTHS]
+        sel_month = st.selectbox("Month", month_labels, key="me_month")
 
-    df = prepare_records_df()
-    if not df.empty:
-        mdf = df[df["fy_month"] == sel_month]
-        driver_comp_total = float(mdf["driver_compensation"].sum()) if not mdf.empty else 0.0
-    else:
-        driver_comp_total = 0.0
-
-    st.markdown("**Fixed monthly costs**")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        rent_s = st.text_input("Rent (M)", value=format_amount(rent0) if rent0 else "", placeholder="0.00")
-        wifi_s = st.text_input("WiFi (M)", value=format_amount(wifi0) if wifi0 else "", placeholder="0.00")
-    with c2:
-        maint_s = st.text_input("Maintenance (M)", value=format_amount(maint0) if maint0 else "", placeholder="0.00")
-        sal_s = st.text_input("Monthly salaries (M)", value=format_amount(sal0) if sal0 else "", placeholder="0.00")
-    with c3:
-        wash_s = st.text_input("Car wash (M)", value=format_amount(wash0) if wash0 else "", placeholder="0.00")
-        misc_s = st.text_input("Miscellaneous (M)", value=format_amount(misc0) if misc0 else "", placeholder="0.00")
-    notes = st.text_input("Notes", value=notes0)
-
-    rent = parse_amount(rent_s)
-    wifi = parse_amount(wifi_s)
-    maint = parse_amount(maint_s)
-    salaries = parse_amount(sal_s)
-    car_wash = parse_amount(wash_s)
-    miscellaneous = parse_amount(misc_s)
-    fixed_total = rent + wifi + maint + salaries + car_wash + miscellaneous
-    staff_total = driver_comp_total + salaries
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Fixed monthly total", money(fixed_total))
-    m2.metric("Driver compensation (from daily)", money(driver_comp_total))
-    m3.metric("Staff total (comp + salary)", money(staff_total))
-
-    if st.button("Save monthly expenses", type="primary", use_container_width=True):
+        existing = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (sel_month,))
         if not existing.empty:
-            execute(
-                "UPDATE monthly_expenses SET rent=?, wifi=?, maintenance=?, salaries=?, car_wash=?, miscellaneous=?, notes=? WHERE expense_month=?",
-                (rent, wifi, maint, salaries, car_wash, miscellaneous, notes, sel_month),
-            )
+            row = existing.iloc[0]
+            rent0 = float(row.get("rent") or 0)
+            wifi0 = float(row.get("wifi") or 0)
+            maint0 = float(row.get("maintenance") or 0)
+            sal0 = float(row.get("salaries") or 0)
+            wash0 = float(row.get("car_wash") or 0)
+            misc0 = float(row.get("miscellaneous") or 0)
+            notes0 = str(row.get("notes") or "")
         else:
-            execute(
-                "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?)",
-                (sel_month, rent, wifi, maint, salaries, car_wash, miscellaneous, notes),
-            )
-        st.success(f"Saved expenses for {sel_month}")
-        st.rerun()
+            rent0 = wifi0 = maint0 = sal0 = wash0 = misc0 = 0.0
+            notes0 = ""
 
-    st.markdown("---")
-    st.subheader("All months")
-    all_me = query_df(
-        "SELECT expense_month, rent, wifi, maintenance, salaries, car_wash, miscellaneous, notes "
-        "FROM monthly_expenses ORDER BY expense_month"
-    )
-    if all_me.empty:
-        st.info("No monthly expenses saved yet.")
-    else:
-        for col in ["rent", "wifi", "maintenance", "salaries", "car_wash", "miscellaneous"]:
-            if col not in all_me.columns:
-                all_me[col] = 0
-            all_me[col] = pd.to_numeric(all_me[col], errors="coerce").fillna(0)
-        all_me["fixed_total"] = (
-            all_me["rent"] + all_me["wifi"] + all_me["maintenance"]
-            + all_me["salaries"] + all_me["car_wash"] + all_me["miscellaneous"]
+        df = prepare_records_df()
+        if not df.empty:
+            mdf = df[df["fy_month"] == sel_month]
+            driver_comp_total = float(mdf["driver_compensation"].sum()) if not mdf.empty else 0.0
+        else:
+            driver_comp_total = 0.0
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            rent_s = st.text_input("Rent (M)", value=format_amount(rent0) if rent0 else "", placeholder="0.00")
+            wifi_s = st.text_input("WiFi (M)", value=format_amount(wifi0) if wifi0 else "", placeholder="0.00")
+        with c2:
+            maint_s = st.text_input("Maintenance (M)", value=format_amount(maint0) if maint0 else "", placeholder="0.00")
+            sal_s = st.text_input("Monthly salaries (M)", value=format_amount(sal0) if sal0 else "", placeholder="0.00")
+        with c3:
+            wash_s = st.text_input("Car wash (M)", value=format_amount(wash0) if wash0 else "", placeholder="0.00")
+            misc_s = st.text_input("Miscellaneous (M)", value=format_amount(misc0) if misc0 else "", placeholder="0.00")
+        notes = st.text_input("Notes", value=notes0)
+
+        rent = parse_amount(rent_s)
+        wifi = parse_amount(wifi_s)
+        maint = parse_amount(maint_s)
+        salaries = parse_amount(sal_s)
+        car_wash = parse_amount(wash_s)
+        miscellaneous = parse_amount(misc_s)
+        fixed_total = rent + wifi + maint + salaries + car_wash + miscellaneous
+        staff_total = driver_comp_total + salaries
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Fixed monthly total", money(fixed_total))
+        m2.metric("Driver compensation (daily)", money(driver_comp_total))
+        m3.metric("Staff total (comp + salary)", money(staff_total))
+
+        if st.button("Save fixed costs", type="primary", use_container_width=True):
+            if not existing.empty:
+                execute(
+                    "UPDATE monthly_expenses SET rent=?, wifi=?, maintenance=?, salaries=?, car_wash=?, miscellaneous=?, notes=? WHERE expense_month=?",
+                    (rent, wifi, maint, salaries, car_wash, miscellaneous, notes, sel_month),
+                )
+            else:
+                execute(
+                    "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?)",
+                    (sel_month, rent, wifi, maint, salaries, car_wash, miscellaneous, notes),
+                )
+            st.success(f"Saved fixed costs for {sel_month}")
+            st.rerun()
+
+        all_me = query_df(
+            "SELECT expense_month, rent, wifi, maintenance, salaries, car_wash, miscellaneous "
+            "FROM monthly_expenses ORDER BY expense_month"
         )
-        st.dataframe(all_me, use_container_width=True, hide_index=True)
+        if not all_me.empty:
+            st.dataframe(all_me, use_container_width=True, hide_index=True)
+
+    with tab_inc:
+        st.markdown("**Log a fine, accident, damage or police cost**")
+        with st.form("incident_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                d = st.date_input("Date", value=date.today(), key="inc_date")
+                veh = st.selectbox("Vehicle", [v["name"] for v in VEHICLES], key="inc_veh")
+            with c2:
+                cat = st.selectbox("Category", ["Fine", "Accident", "Damage", "Police", "Other"], key="inc_cat")
+                amt_s = st.text_input("Amount (M)", value="", placeholder="0.00", key="inc_amt")
+            notes_i = st.text_input("Notes", key="inc_notes")
+            if st.form_submit_button("Save incident", type="primary"):
+                ensure_extra_tables()
+                plate = next((v["plate"] for v in VEHICLES if v["name"] == veh), "")
+                execute(
+                    "INSERT INTO incidents (incident_date, vehicle_name, plate, category, amount, notes) VALUES (?,?,?,?,?,?)",
+                    (d.isoformat(), veh, plate, cat, parse_amount(amt_s), notes_i),
+                )
+                st.success("Incident saved")
+                st.rerun()
+        try:
+            idf = query_df("SELECT incident_date, vehicle_name, category, amount, notes FROM incidents ORDER BY id DESC LIMIT 50")
+            if idf.empty:
+                st.info("No incidents yet.")
+            else:
+                st.dataframe(idf, use_container_width=True, hide_index=True)
+                st.metric("Total incidents (listed)", money(pd.to_numeric(idf["amount"], errors="coerce").fillna(0).sum()))
+        except Exception:
+            ensure_extra_tables()
+            st.info("Incidents table ready — save your first entry.")
+
+    with tab_parts:
+        st.markdown("**Tyres, battery, brakes and workshop jobs**")
+        with st.form("parts_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                d = st.date_input("Date", value=date.today(), key="parts_date")
+                veh = st.selectbox("Vehicle", [v["name"] for v in VEHICLES], key="parts_veh")
+            with c2:
+                item = st.text_input("Item (tyre, battery, brakes…)", key="parts_item")
+                amt_s = st.text_input("Amount (M)", value="", placeholder="0.00", key="parts_amt")
+            notes_p = st.text_input("Notes", key="parts_notes")
+            if st.form_submit_button("Save parts / workshop", type="primary"):
+                ensure_extra_tables()
+                plate = next((v["plate"] for v in VEHICLES if v["name"] == veh), "")
+                execute(
+                    "INSERT INTO parts_workshop (entry_date, vehicle_name, plate, item, amount, notes) VALUES (?,?,?,?,?,?)",
+                    (d.isoformat(), veh, plate, item, parse_amount(amt_s), notes_p),
+                )
+                st.success("Parts / workshop saved")
+                st.rerun()
+        try:
+            pdf = query_df("SELECT entry_date, vehicle_name, item, amount, notes FROM parts_workshop ORDER BY id DESC LIMIT 50")
+            if pdf.empty:
+                st.info("No parts / workshop entries yet.")
+            else:
+                st.dataframe(pdf, use_container_width=True, hide_index=True)
+                st.metric("Total parts (listed)", money(pd.to_numeric(pdf["amount"], errors="coerce").fillna(0).sum()))
+        except Exception:
+            ensure_extra_tables()
+            st.info("Parts table ready — save your first entry.")
 
 
 def _week_bounds(ref_date=None):
@@ -2397,56 +2489,97 @@ def page_parts():
         st.dataframe(pdf, use_container_width=True, hide_index=True)
 
 
+def _night_car_for_week(monday):
+    """
+    One work car covers night shift Mon evening → Sun morning 6am.
+    Sequence (confirmed): A945 → A765 → A943 → A940 → A238 → (repeat)
+    Anchor: week Mon 10 Nov 2026 = A 945 BDL (ending Sun 16 Nov morning).
+    """
+    order_plates = ["A 945 BDL", "A 765 BGR", "A 943 BDL", "A 940 BDL", "A 238 BGN"]
+    anchor = date(2026, 11, 10)  # Monday of A945 week
+    week_index = (monday - anchor).days // 7
+    plate = order_plates[week_index % len(order_plates)]
+    car = next((v for v in VEHICLES if v["plate"] == plate), None)
+    return car, plate
+
+
 def page_night_duty():
     st.header("Night Duty Roster")
-    st.caption("Fits 1–5 rotate nights Monday–Saturday · Alphard is office car (no night roster)")
+    st.caption("One car per week · Monday start → Sunday morning 6am · Alphard is office only")
 
-    work = [v for v in VEHICLES if v.get("role") != "office"]
-    monday, sunday = _week_bounds(date.today())
-    # Allow pick another week
-    pick = st.date_input("Week of (any day in the week)", value=monday)
+    monday_today, _ = _week_bounds(date.today())
+    pick = st.date_input("Week of (pick any day)", value=monday_today)
     monday, sunday = _week_bounds(pick)
-    st.write(f"**Week:** {monday.strftime('%d %b %Y')} (Mon) → {(monday+timedelta(days=5)).strftime('%d %b %Y')} (Sat)")
+    # Night week runs Mon → Sun morning
+    car, plate = _night_car_for_week(monday)
+    phones = " / ".join((car or {}).get("phones") or []) or "—"
 
-    # Rotation: week index from a fixed origin (Mon 2 Jun 2026 = FY start week)
-    origin = date(2026, 6, 1)
-    # align origin to Monday
-    origin_mon = origin - timedelta(days=origin.weekday())
-    week_index = max(0, (monday - origin_mon).days // 7)
+    st.markdown(f"""
+    <div style="border:1px solid #f5a62355; border-radius:12px; padding:14px 16px; background:#1a1508; margin:8px 0 14px 0;">
+      <p style="color:#f5a623; font-weight:700; margin:0 0 6px 0;">Night car this week</p>
+      <p style="color:#fff; font-size:18px; font-weight:800; margin:0;">{(car or {}).get('name', '—')} · {plate}</p>
+      <p style="color:#ccc; font-size:13px; margin:6px 0 0 0;">{monday.strftime('%a %d %b')} → Sunday morning 6am · {phones}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-    roster = []
-    for i, day in enumerate(days):
-        car = work[(week_index + i) % len(work)]
-        d = monday + timedelta(days=i)
-        roster.append({
-            "Day": day,
-            "Date": d.isoformat(),
-            "Night car": car["name"],
-            "Plate": car["plate"],
-            "Phone": " / ".join(car.get("phones") or []) or "—",
+    st.markdown("**Rotation order (repeating)**")
+    st.write("A 945 BDL → A 765 BGR → A 943 BDL → A 940 BDL → A 238 BGN → …")
+
+    # Show next 5 weeks
+    upcoming = []
+    for i in range(5):
+        m = monday + timedelta(days=7 * i)
+        c, p = _night_car_for_week(m)
+        upcoming.append({
+            "Week starts (Mon)": m.isoformat(),
+            "Ends (Sun 6am)": (m + timedelta(days=6)).isoformat(),
+            "Night car": (c or {}).get("name", ""),
+            "Plate": p,
         })
-    st.dataframe(pd.DataFrame(roster), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(upcoming), use_container_width=True, hide_index=True)
 
-    st.markdown("**How rotation works**")
-    st.write(
-        "Each week the Mon→Sat night slots shift by one car among Honda Fit 1–5. "
-        "Example: if Mon is Fit 1 this week, next week Mon is Fit 2, and so on."
-    )
+    # October 2026 weeks
+    st.subheader("October 2026 night cars")
+    oct_rows = []
+    d = date(2026, 10, 1)
+    # first Monday on or before Oct 1 that starts a week overlapping October
+    m0 = d - timedelta(days=d.weekday())
+    if m0.month == 9:
+        # include late Sep week only if it runs into Oct nights — show from first Monday in Oct
+        m0 = m0 + timedelta(days=7)
+    while m0.month <= 10 and m0.year == 2026:
+        c, p = _night_car_for_week(m0)
+        oct_rows.append({
+            "Week Mon": m0.isoformat(),
+            "To Sun morning": (m0 + timedelta(days=6)).isoformat(),
+            "Night car": (c or {}).get("name", ""),
+            "Plate": p,
+        })
+        m0 = m0 + timedelta(days=7)
+        if m0.month > 10:
+            break
+    st.dataframe(pd.DataFrame(oct_rows), use_container_width=True, hide_index=True)
 
-    # Compare to recorded Night duties this week
+    # Recorded Night rows for selected week
     df = prepare_records_df()
     if not df.empty:
-        wdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= monday + timedelta(days=5))]
+        wdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= sunday)]
         night = wdf[wdf["duty"].astype(str).str.lower() == "night"] if not wdf.empty else wdf
+        st.subheader("Recorded Night entries (this week)")
         if night is not None and not night.empty:
-            st.subheader("Recorded Night duties this week")
             st.dataframe(
-                night[["record_date", "vehicle_name", "driver_name", "cash_collected", "trips"]],
+                night[["record_date", "vehicle_name", "plate", "driver_name", "cash_collected", "trips"]],
                 use_container_width=True, hide_index=True,
             )
+            # Flag mismatches
+            wrong = night[night["plate"].astype(str).str.replace(" ", "") != plate.replace(" ", "")]
+            if not wrong.empty:
+                st.warning(
+                    f"Some Night records are not on roster car **{plate}**. "
+                    "Edit them under Records if they should follow the roster."
+                )
         else:
-            st.caption("No Night duty records logged for this week yet.")
+            st.caption("No Night duty records for this week yet.")
 
 
 def page_export():
@@ -2678,8 +2811,6 @@ def main():
         "Fuel Prices": page_fuel_prices,
         "Clients": page_clients,
         "Monthly Expenses": page_monthly_expenses,
-        "Incidents": page_incidents,
-        "Parts / Workshop": page_parts,
         "Quotations": page_quotations,
         "Invoices": page_invoices,
         "Backup / Export": page_export,
