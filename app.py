@@ -346,16 +346,30 @@ CURRENCY = "M"
 CREDIT_CLIENTS = ["Alliance", "Lehae", "World Vision", "Waleslink", "LNLVIP"]
 
 VEHICLES = [
-    {"id": 1, "name": "Honda Fit 1", "plate": "A 940 BDL", "type": "Honda Fit"},
-    {"id": 2, "name": "Honda Fit 2", "plate": "A 943 BDL", "type": "Honda Fit"},
-    {"id": 3, "name": "Honda Fit 3", "plate": "A 945 BDL", "type": "Honda Fit"},
-    {"id": 4, "name": "Honda Fit 4", "plate": "A 238 BGN", "type": "Honda Fit"},
-    {"id": 5, "name": "Honda Fit 5", "plate": "A 765 BGR", "type": "Honda Fit"},
-    {"id": 6, "name": "Toyota Alphard", "plate": "A 313 BCM", "type": "Alphard 7-seater"},
+    {"id": 1, "name": "Honda Fit 1", "plate": "A 940 BDL", "type": "Honda Fit",
+     "phones": ["+266 58551514"], "role": "work"},
+    {"id": 2, "name": "Honda Fit 2", "plate": "A 943 BDL", "type": "Honda Fit",
+     "phones": ["+266 63299587", "+266 58658977"], "role": "work"},
+    {"id": 3, "name": "Honda Fit 3", "plate": "A 945 BDL", "type": "Honda Fit",
+     "phones": ["+266 50030354", "+266 63050399"], "role": "work"},
+    {"id": 4, "name": "Honda Fit 4", "plate": "A 238 BGN", "type": "Honda Fit",
+     "phones": ["+266 59591257", "+266 63751338"], "role": "work"},
+    {"id": 5, "name": "Honda Fit 5", "plate": "A 765 BGR", "type": "Honda Fit",
+     "phones": ["+266 58493642", "+266 62909197"], "role": "work"},
+    {"id": 6, "name": "Toyota Alphard", "plate": "A 313 BCM", "type": "Alphard 7-seater",
+     "phones": [], "role": "office"},
 ]
 
-# Default driver per vehicle (auto-fills on Daily Entry; editable if driver changes car)
-# Update these names anytime — the form will use them, or the last driver saved for that car
+# Official Lesotho Petrol 95 pump prices (M/litre) — Petroleum Fund
+LESOTHO_PETROL_95 = {
+    "June 2026": 26.20,
+    "July 2026": 23.85,
+    "August 2026": 24.05,
+    "September 2026": 24.80,
+    "October 2026": 28.60,
+    "November 2026": 29.25,
+}
+
 DEFAULT_DRIVERS = {
     "Honda Fit 1": "",
     "Honda Fit 2": "",
@@ -628,6 +642,32 @@ def _init_db_impl():
     """)
     run_sql(f"ALTER TABLE monthly_expenses ADD COLUMN car_wash {real_type} DEFAULT 0")
     run_sql(f"ALTER TABLE monthly_expenses ADD COLUMN miscellaneous {real_type} DEFAULT 0")
+
+    run_sql(f"""
+        CREATE TABLE IF NOT EXISTS incidents (
+            {id_col},
+            incident_date TEXT NOT NULL,
+            vehicle_name TEXT,
+            plate TEXT,
+            category TEXT,
+            amount {real_type} DEFAULT 0,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    run_sql(f"""
+        CREATE TABLE IF NOT EXISTS parts_workshop (
+            {id_col},
+            entry_date TEXT NOT NULL,
+            vehicle_name TEXT,
+            plate TEXT,
+            item TEXT,
+            amount {real_type} DEFAULT 0,
+            notes TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     try:
         if not cloud:
@@ -2119,6 +2159,296 @@ def page_monthly_expenses():
         st.dataframe(all_me, use_container_width=True, hide_index=True)
 
 
+def _week_bounds(ref_date=None):
+    """Monday–Sunday week containing ref_date."""
+    d = ref_date or date.today()
+    if hasattr(d, "date"):
+        d = d.date()
+    monday = d - timedelta(days=d.weekday())
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
+
+
+def page_contacts():
+    st.header("Fleet Contacts")
+    st.caption("Sole trader · Maxy Taxi Transport · vehicle phones")
+    rows = []
+    for v in VEHICLES:
+        phones = " / ".join(v.get("phones") or []) or ("Office car" if v.get("role") == "office" else "—")
+        rows.append({
+            "Vehicle": v["name"],
+            "Plate": v["plate"],
+            "Type": v["type"],
+            "Role": "Office" if v.get("role") == "office" else "Work",
+            "Phone(s)": phones,
+        })
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.info("Alphard is the office / owner car — no driver contact assigned.")
+
+
+def page_weekly_summary():
+    st.header("Weekly & Monthly Summary")
+    st.caption("Cash, credits, fuel, expenses · no banking yet")
+
+    tab_w, tab_m = st.tabs(["This week (Mon–Sun)", "By month"])
+
+    df = prepare_records_df()
+
+    with tab_w:
+        monday, sunday = _week_bounds(date.today())
+        st.write(f"**Week:** {monday.isoformat()} → {sunday.isoformat()}")
+        if df.empty:
+            st.info("No records yet.")
+        else:
+            wdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= sunday)]
+            if wdf.empty:
+                st.warning("No daily records in this week yet.")
+            else:
+                cash = wdf["cash_collected"].sum()
+                credits = wdf["credits"].sum()
+                fuel = wdf["fuel_cost"].sum()
+                topup = wdf["fuel_topup"].sum()
+                dcomp = wdf["driver_compensation"].sum()
+                airtime = wdf["airtime"].sum()
+                other = wdf["other_expenses"].sum()
+                trips = int(wdf["trips"].sum())
+                expenses = fuel + topup + dcomp + airtime + other
+                revenue = cash + credits
+                net = revenue - expenses
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Cash", money(cash))
+                c2.metric("Credits / contracts", money(credits))
+                c3.metric("Total revenue", money(revenue))
+                c4.metric("Net", money(net))
+                c5, c6, c7, c8 = st.columns(4)
+                c5.metric("Fuel", money(fuel))
+                c6.metric("Top-up", money(topup))
+                c7.metric("Driver comp", money(dcomp))
+                c8.metric("Trips", trips)
+
+                st.markdown("**By vehicle this week**")
+                byv = wdf.groupby("vehicle_name").agg({
+                    "cash_collected": "sum", "credits": "sum", "fuel_cost": "sum",
+                    "fuel_topup": "sum", "driver_compensation": "sum", "airtime": "sum",
+                    "other_expenses": "sum", "trips": "sum",
+                }).reset_index()
+                byv["Net"] = (byv["cash_collected"] + byv["credits"]
+                              - byv["fuel_cost"] - byv["fuel_topup"]
+                              - byv["driver_compensation"] - byv["airtime"] - byv["other_expenses"])
+                st.dataframe(byv, use_container_width=True, hide_index=True)
+
+                st.markdown("**Credits breakdown**")
+                for col, label in [
+                    ("credit_alliance", "Alliance"), ("credit_lehae", "Lehae"),
+                    ("credit_worldvision", "World Vision"), ("credit_waleslink", "Waleslink"),
+                    ("credit_lnlvip", "LNLVIP"),
+                ]:
+                    if col in wdf.columns:
+                        st.write(f"- {label}: **{money(wdf[col].sum())}**")
+
+    with tab_m:
+        month_labels = [label for _, _, label in FY_MONTHS]
+        sel = st.selectbox("Month", month_labels, key="sum_month")
+        if df.empty:
+            st.info("No records yet.")
+        else:
+            mdf = df[df["fy_month"] == sel]
+            cash = mdf["cash_collected"].sum() if not mdf.empty else 0
+            credits = mdf["credits"].sum() if not mdf.empty else 0
+            fuel = mdf["fuel_cost"].sum() if not mdf.empty else 0
+            topup = mdf["fuel_topup"].sum() if not mdf.empty else 0
+            dcomp = mdf["driver_compensation"].sum() if not mdf.empty else 0
+            airtime = mdf["airtime"].sum() if not mdf.empty else 0
+            other = mdf["other_expenses"].sum() if not mdf.empty else 0
+            # Monthly fixed expenses
+            me = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (sel,))
+            fixed = 0.0
+            if not me.empty:
+                r = me.iloc[0]
+                for k in ["rent", "wifi", "maintenance", "salaries", "car_wash", "miscellaneous"]:
+                    fixed += float(r.get(k) or 0)
+            expenses = fuel + topup + dcomp + airtime + other + fixed
+            revenue = cash + credits
+            net = revenue - expenses
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Cash", money(cash))
+            c2.metric("Credits", money(credits))
+            c3.metric("Fixed monthly costs", money(fixed))
+            c4.metric("Net after all", money(net))
+            petrol = LESOTHO_PETROL_95.get(sel)
+            if petrol:
+                st.caption(f"Lesotho Petrol 95 that month: **M{petrol:.2f}/L** (Petroleum Fund)")
+
+
+def page_fuel_prices():
+    st.header("Fuel Prices (Lesotho)")
+    st.caption("Official Petrol 95 pump prices · Petroleum Fund")
+    rows = [{"Month": m, "Petrol 95 (M/L)": p} for m, p in LESOTHO_PETROL_95.items()]
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.markdown("""
+    | Month | Petrol 95 |
+    |-------|-----------|
+    | June 2026 | M26.20 |
+    | July 2026 | M23.85 |
+    | August 2026 | M24.05 |
+    | September 2026 | M24.80 |
+    | October 2026 | M28.60 |
+    | November 2026 | M29.25 |
+    """)
+    st.caption("Source: Petroleum Fund / Data Matrix. Update when new gazette is published.")
+
+    df = prepare_records_df()
+    if not df.empty:
+        st.subheader("Your fuel spend vs pump price")
+        for label, price in LESOTHO_PETROL_95.items():
+            mdf = df[df["fy_month"] == label]
+            if mdf.empty:
+                continue
+            spend = mdf["fuel_cost"].sum() + mdf["fuel_topup"].sum()
+            litres = spend / price if price else 0
+            st.write(f"**{label}:** fuel+top-up {money(spend)} ≈ **{litres:,.0f} L** at M{price:.2f}/L")
+
+
+def page_profit():
+    st.header("Profit by Vehicle")
+    mode = st.radio("Period", ["This week (Mon–Sun)", "Month"], horizontal=True)
+    df = prepare_records_df()
+    if df.empty:
+        st.info("No records yet.")
+        return
+
+    if mode.startswith("This week"):
+        monday, sunday = _week_bounds(date.today())
+        st.caption(f"{monday} → {sunday}")
+        fdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= sunday)]
+    else:
+        labels = [label for _, _, label in FY_MONTHS]
+        sel = st.selectbox("Month", labels, key="profit_month")
+        fdf = df[df["fy_month"] == sel]
+
+    if fdf.empty:
+        st.warning("No data for this period.")
+        return
+
+    byv = fdf.groupby("vehicle_name").agg({
+        "cash_collected": "sum", "credits": "sum", "fuel_cost": "sum",
+        "fuel_topup": "sum", "driver_compensation": "sum", "airtime": "sum",
+        "other_expenses": "sum", "trips": "sum",
+    }).reset_index()
+    byv["Revenue"] = byv["cash_collected"] + byv["credits"]
+    byv["Expenses"] = (byv["fuel_cost"] + byv["fuel_topup"] + byv["driver_compensation"]
+                       + byv["airtime"] + byv["other_expenses"])
+    byv["Profit"] = byv["Revenue"] - byv["Expenses"]
+    byv = byv.sort_values("Profit", ascending=False)
+    st.dataframe(byv, use_container_width=True, hide_index=True)
+    st.metric("Fleet profit (period)", money(byv["Profit"].sum()))
+
+
+def page_incidents():
+    st.header("Incidents & Fines")
+    with st.form("incident_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            d = st.date_input("Date", value=date.today())
+            veh = st.selectbox("Vehicle", [v["name"] for v in VEHICLES])
+        with c2:
+            cat = st.selectbox("Category", ["Fine", "Accident", "Damage", "Police", "Other"])
+            amt_s = st.text_input("Amount (M)", value="", placeholder="0.00")
+        notes = st.text_input("Notes")
+        if st.form_submit_button("Save", type="primary"):
+            plate = next((v["plate"] for v in VEHICLES if v["name"] == veh), "")
+            execute(
+                "INSERT INTO incidents (incident_date, vehicle_name, plate, category, amount, notes) VALUES (?,?,?,?,?,?)",
+                (d.isoformat(), veh, plate, cat, parse_amount(amt_s), notes),
+            )
+            st.success("Saved")
+            st.rerun()
+    idf = query_df("SELECT incident_date, vehicle_name, category, amount, notes FROM incidents ORDER BY id DESC LIMIT 50")
+    if idf.empty:
+        st.info("No incidents logged.")
+    else:
+        st.dataframe(idf, use_container_width=True, hide_index=True)
+
+
+def page_parts():
+    st.header("Parts & Workshop")
+    with st.form("parts_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            d = st.date_input("Date", value=date.today(), key="parts_date")
+            veh = st.selectbox("Vehicle", [v["name"] for v in VEHICLES], key="parts_veh")
+        with c2:
+            item = st.text_input("Item (tyre, battery, brakes…)")
+            amt_s = st.text_input("Amount (M)", value="", placeholder="0.00", key="parts_amt")
+        notes = st.text_input("Notes", key="parts_notes")
+        if st.form_submit_button("Save", type="primary"):
+            plate = next((v["plate"] for v in VEHICLES if v["name"] == veh), "")
+            execute(
+                "INSERT INTO parts_workshop (entry_date, vehicle_name, plate, item, amount, notes) VALUES (?,?,?,?,?,?)",
+                (d.isoformat(), veh, plate, item, parse_amount(amt_s), notes),
+            )
+            st.success("Saved")
+            st.rerun()
+    pdf = query_df("SELECT entry_date, vehicle_name, item, amount, notes FROM parts_workshop ORDER BY id DESC LIMIT 50")
+    if pdf.empty:
+        st.info("No parts / workshop entries yet.")
+    else:
+        st.dataframe(pdf, use_container_width=True, hide_index=True)
+
+
+def page_night_duty():
+    st.header("Night Duty Roster")
+    st.caption("Fits 1–5 rotate nights Monday–Saturday · Alphard is office car (no night roster)")
+
+    work = [v for v in VEHICLES if v.get("role") != "office"]
+    monday, sunday = _week_bounds(date.today())
+    # Allow pick another week
+    pick = st.date_input("Week of (any day in the week)", value=monday)
+    monday, sunday = _week_bounds(pick)
+    st.write(f"**Week:** {monday.strftime('%d %b %Y')} (Mon) → {(monday+timedelta(days=5)).strftime('%d %b %Y')} (Sat)")
+
+    # Rotation: week index from a fixed origin (Mon 2 Jun 2026 = FY start week)
+    origin = date(2026, 6, 1)
+    # align origin to Monday
+    origin_mon = origin - timedelta(days=origin.weekday())
+    week_index = max(0, (monday - origin_mon).days // 7)
+
+    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    roster = []
+    for i, day in enumerate(days):
+        car = work[(week_index + i) % len(work)]
+        d = monday + timedelta(days=i)
+        roster.append({
+            "Day": day,
+            "Date": d.isoformat(),
+            "Night car": car["name"],
+            "Plate": car["plate"],
+            "Phone": " / ".join(car.get("phones") or []) or "—",
+        })
+    st.dataframe(pd.DataFrame(roster), use_container_width=True, hide_index=True)
+
+    st.markdown("**How rotation works**")
+    st.write(
+        "Each week the Mon→Sat night slots shift by one car among Honda Fit 1–5. "
+        "Example: if Mon is Fit 1 this week, next week Mon is Fit 2, and so on."
+    )
+
+    # Compare to recorded Night duties this week
+    df = prepare_records_df()
+    if not df.empty:
+        wdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= monday + timedelta(days=5))]
+        night = wdf[wdf["duty"].astype(str).str.lower() == "night"] if not wdf.empty else wdf
+        if night is not None and not night.empty:
+            st.subheader("Recorded Night duties this week")
+            st.dataframe(
+                night[["record_date", "vehicle_name", "driver_name", "cash_collected", "trips"]],
+                use_container_width=True, hide_index=True,
+            )
+        else:
+            st.caption("No Night duty records logged for this week yet.")
+
+
 def page_export():
     st.header("Backup & Export")
 
@@ -2340,25 +2670,22 @@ def main():
         "Dashboard": page_dashboard,
         "Daily Entry": page_daily_entry,
         "Records": page_records,
+        "Weekly Summary": page_weekly_summary,
+        "Profit by Vehicle": page_profit,
         "Fleet": page_vehicles,
+        "Contacts": page_contacts,
+        "Night Duty": page_night_duty,
+        "Fuel Prices": page_fuel_prices,
         "Clients": page_clients,
         "Monthly Expenses": page_monthly_expenses,
+        "Incidents": page_incidents,
+        "Parts / Workshop": page_parts,
         "Quotations": page_quotations,
         "Invoices": page_invoices,
         "Backup / Export": page_export,
     }
 
-    menu_labels = {
-        "Dashboard": "Dashboard",
-        "Daily Entry": "Daily Entry",
-        "Records": "Records",
-        "Fleet": "Fleet",
-        "Clients": "Clients",
-        "Monthly Expenses": "Monthly Expenses",
-        "Quotations": "Quotations",
-        "Invoices": "Invoices",
-        "Backup / Export": "Backup / Export",
-    }
+    menu_labels = {k: k for k in pages.keys()}
     choice = st.sidebar.radio("Menu", list(pages.keys()), label_visibility="collapsed",
                               format_func=lambda x: menu_labels.get(x, x))
 
