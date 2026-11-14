@@ -155,24 +155,32 @@ st.markdown("""
         background: #1a0a0a !important;
     }
 
-    /* ===== DATAFRAMES / TABLES ===== */
+    /* ===== DATAFRAMES / TABLES (gold + green brand) ===== */
     .stDataFrame {
-        border: 1px solid #2a2a2a !important;
-        border-radius: 10px !important;
+        border: 1px solid #f5a62355 !important;
+        border-radius: 12px !important;
         overflow: hidden;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+        box-shadow: 0 4px 18px rgba(245,166,35,0.12);
     }
-    .stDataFrame thead tr th {
-        background: #1c1c1c !important;
-        color: #f5a623 !important;
-        font-weight: 700 !important;
+    .stDataFrame thead tr th,
+    .stDataFrame [data-testid="stDataFrameResizable"] th {
+        background: linear-gradient(90deg, #2a1f0a 0%, #1a2e1a 100%) !important;
+        color: #ffd700 !important;
+        font-weight: 800 !important;
+        border-bottom: 2px solid #f5a623 !important;
     }
     .stDataFrame tbody tr {
-        background: #141414 !important;
-        color: #e0e0e0 !important;
+        background: #141210 !important;
+        color: #f0e6c8 !important;
     }
     .stDataFrame tbody tr:nth-child(even) {
-        background: #1a1a1a !important;
+        background: #1a2418 !important;
+    }
+    .stDataFrame tbody tr:hover {
+        background: #243020 !important;
+    }
+    .stDataFrame tbody td {
+        border-color: #2a3020 !important;
     }
 
     /* ===== EXPANDERS ===== */
@@ -2554,10 +2562,10 @@ def _night_car_for_week(monday):
     """
     One work car covers night shift Mon → Sunday morning 6am.
     Order: A945 → A765 → A943 → A940 → A238 → (repeat)
-    Anchor Monday 10 Nov 2026 = A 945 BDL.
+    Anchor Monday 9 Nov 2026 = A 945 BDL (until Sun 15 Nov 06:00).
     """
     order_plates = ["A 945 BDL", "A 765 BGR", "A 943 BDL", "A 940 BDL", "A 238 BGN"]
-    anchor = date(2026, 11, 10)
+    anchor = date(2026, 11, 9)
     if hasattr(monday, "date"):
         monday = monday.date()
     week_index = (monday - anchor).days // 7
@@ -2577,7 +2585,7 @@ def page_night_duty():
     today = date.today()
     active_monday, _ = _week_bounds(today)
     car_now, plate_now = _night_car_for_week(active_monday)
-    # Hard check: week of 10–16 Nov 2026 must show A 945 BDL
+    # Week Mon 9 Nov → Sun 15 Nov 6am = A 945 BDL
     phones_now = " / ".join((car_now or {}).get("phones") or []) or "—"
 
     st.markdown(f"""
