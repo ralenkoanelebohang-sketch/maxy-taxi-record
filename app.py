@@ -2278,66 +2278,110 @@ def page_contacts():
     st.info("Alphard is the office / owner car — no driver contact assigned.")
 
 
+def _week_options_for_month(year, month):
+    """List of (label, monday, sunday) for each Mon–Sun week overlapping the month."""
+    first = date(year, month, 1)
+    if month == 12:
+        last = date(year, 12, 31)
+    else:
+        last = date(year, month + 1, 1) - timedelta(days=1)
+    # Start from Monday on or before the 1st
+    m = first - timedelta(days=first.weekday())
+    opts = []
+    while m <= last:
+        s = m + timedelta(days=6)
+        if s >= first:  # overlaps month
+            label = f"{m.strftime('%d %b')} – {s.strftime('%d %b %Y')}"
+            opts.append((label, m, s))
+        m = m + timedelta(days=7)
+    return opts
+
+
+def _plate_label(row):
+    p = str(row.get("plate") or "").strip()
+    return p if p else str(row.get("vehicle_name") or "")
+
+
 def page_weekly_summary():
     st.header("Weekly & Monthly Summary")
-    st.caption("Cash, credits, fuel, expenses · no banking yet")
+    st.caption("Cash, credits, fuel, expenses · shown by registration number")
 
-    tab_w, tab_m = st.tabs(["This week (Mon–Sun)", "By month"])
+    tab_w, tab_m = st.tabs(["Weekly (Mon–Sun)", "By month"])
 
     df = prepare_records_df()
 
     with tab_w:
-        monday, sunday = _week_bounds(date.today())
-        st.write(f"**Week:** {monday.isoformat()} → {sunday.isoformat()}")
-        if df.empty:
-            st.info("No records yet.")
+        # Choose month then week within that month
+        month_labels = [label for _, _, label in FY_MONTHS]
+        # Default to current FY month if possible
+        today = date.today()
+        default_label = next((lab for y, m, lab in FY_MONTHS if y == today.year and m == today.month), month_labels[0])
+        sel_m_label = st.selectbox("Month", month_labels, index=month_labels.index(default_label) if default_label in month_labels else 0, key="ws_month")
+        y, mth = next((y, m) for y, m, lab in FY_MONTHS if lab == sel_m_label)
+        weeks = _week_options_for_month(y, mth)
+        if not weeks:
+            st.warning("No weeks in this month.")
         else:
-            wdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= sunday)]
-            if wdf.empty:
-                st.warning("No daily records in this week yet.")
+            # Default to week containing today if in this month
+            def_idx = 0
+            for i, (_, mon, sun) in enumerate(weeks):
+                if mon <= today <= sun:
+                    def_idx = i
+                    break
+            wlabel = st.selectbox("Week", [w[0] for w in weeks], index=def_idx, key="ws_week")
+            monday, sunday = next((mon, sun) for lab, mon, sun in weeks if lab == wlabel)
+            st.write(f"**Week:** {monday.isoformat()} → {sunday.isoformat()}")
+
+            if df.empty:
+                st.info("No records yet.")
             else:
-                cash = wdf["cash_collected"].sum()
-                credits = wdf["credits"].sum()
-                fuel = wdf["fuel_cost"].sum()
-                topup = wdf["fuel_topup"].sum()
-                dcomp = wdf["driver_compensation"].sum()
-                airtime = wdf["airtime"].sum()
-                other = wdf["other_expenses"].sum()
-                trips = int(wdf["trips"].sum())
-                expenses = fuel + topup + dcomp + airtime + other
-                revenue = cash + credits
-                net = revenue - expenses
+                wdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= sunday)].copy()
+                if wdf.empty:
+                    st.warning("No daily records in this week.")
+                else:
+                    wdf["reg"] = wdf.apply(_plate_label, axis=1)
+                    cash = wdf["cash_collected"].sum()
+                    credits = wdf["credits"].sum()
+                    fuel = wdf["fuel_cost"].sum()
+                    topup = wdf["fuel_topup"].sum()
+                    dcomp = wdf["driver_compensation"].sum()
+                    airtime = wdf["airtime"].sum()
+                    other = wdf["other_expenses"].sum()
+                    trips = int(wdf["trips"].sum())
+                    expenses = fuel + topup + dcomp + airtime + other
+                    revenue = cash + credits
+                    net = revenue - expenses
 
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Cash", money(cash))
-                c2.metric("Credits / contracts", money(credits))
-                c3.metric("Total revenue", money(revenue))
-                c4.metric("Net", money(net))
-                c5, c6, c7, c8 = st.columns(4)
-                c5.metric("Fuel", money(fuel))
-                c6.metric("Top-up", money(topup))
-                c7.metric("Driver comp", money(dcomp))
-                c8.metric("Trips", trips)
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Cash", money(cash))
+                    c2.metric("Credits / contracts", money(credits))
+                    c3.metric("Total revenue", money(revenue))
+                    c4.metric("Net", money(net))
+                    c5, c6, c7, c8 = st.columns(4)
+                    c5.metric("Fuel", money(fuel))
+                    c6.metric("Top-up", money(topup))
+                    c7.metric("Driver comp", money(dcomp))
+                    c8.metric("Trips", trips)
 
-                st.markdown("**By vehicle this week**")
-                byv = wdf.groupby("vehicle_name").agg({
-                    "cash_collected": "sum", "credits": "sum", "fuel_cost": "sum",
-                    "fuel_topup": "sum", "driver_compensation": "sum", "airtime": "sum",
-                    "other_expenses": "sum", "trips": "sum",
-                }).reset_index()
-                byv["Net"] = (byv["cash_collected"] + byv["credits"]
-                              - byv["fuel_cost"] - byv["fuel_topup"]
-                              - byv["driver_compensation"] - byv["airtime"] - byv["other_expenses"])
-                st.dataframe(byv, use_container_width=True, hide_index=True)
+                    st.markdown("**By registration number**")
+                    byv = wdf.groupby("reg").agg({
+                        "cash_collected": "sum", "credits": "sum", "fuel_cost": "sum",
+                        "fuel_topup": "sum", "driver_compensation": "sum", "airtime": "sum",
+                        "other_expenses": "sum", "trips": "sum",
+                    }).reset_index().rename(columns={"reg": "Registration"})
+                    byv["Net"] = (byv["cash_collected"] + byv["credits"]
+                                  - byv["fuel_cost"] - byv["fuel_topup"]
+                                  - byv["driver_compensation"] - byv["airtime"] - byv["other_expenses"])
+                    st.dataframe(byv, use_container_width=True, hide_index=True)
 
-                st.markdown("**Credits breakdown**")
-                for col, label in [
-                    ("credit_alliance", "Alliance"), ("credit_lehae", "Lehae"),
-                    ("credit_worldvision", "World Vision"), ("credit_waleslink", "Waleslink"),
-                    ("credit_lnlvip", "LNLVIP"),
-                ]:
-                    if col in wdf.columns:
-                        st.write(f"- {label}: **{money(wdf[col].sum())}**")
+                    st.markdown("**Credits breakdown**")
+                    for col, label in [
+                        ("credit_alliance", "Alliance"), ("credit_lehae", "Lehae"),
+                        ("credit_worldvision", "World Vision"), ("credit_waleslink", "Waleslink"),
+                        ("credit_lnlvip", "LNLVIP"),
+                    ]:
+                        if col in wdf.columns:
+                            st.write(f"- {label}: **{money(wdf[col].sum())}**")
 
     with tab_m:
         month_labels = [label for _, _, label in FY_MONTHS]
@@ -2404,30 +2448,47 @@ def page_fuel_prices():
 
 def page_profit():
     st.header("Profit by Vehicle")
-    mode = st.radio("Period", ["This week (Mon–Sun)", "Month"], horizontal=True)
+    st.caption("Totals by registration number")
+    mode = st.radio("Period", ["Weekly (Mon–Sun)", "Month"], horizontal=True)
     df = prepare_records_df()
     if df.empty:
         st.info("No records yet.")
         return
 
-    if mode.startswith("This week"):
-        monday, sunday = _week_bounds(date.today())
+    if mode.startswith("Weekly"):
+        month_labels = [label for _, _, label in FY_MONTHS]
+        today = date.today()
+        default_label = next((lab for y, m, lab in FY_MONTHS if y == today.year and m == today.month), month_labels[0])
+        sel_m_label = st.selectbox("Month", month_labels, index=month_labels.index(default_label) if default_label in month_labels else 0, key="profit_ws_month")
+        y, mth = next((y, m) for y, m, lab in FY_MONTHS if lab == sel_m_label)
+        weeks = _week_options_for_month(y, mth)
+        if not weeks:
+            st.warning("No weeks.")
+            return
+        def_idx = 0
+        for i, (_, mon, sun) in enumerate(weeks):
+            if mon <= today <= sun:
+                def_idx = i
+                break
+        wlabel = st.selectbox("Week", [w[0] for w in weeks], index=def_idx, key="profit_ws_week")
+        monday, sunday = next((mon, sun) for lab, mon, sun in weeks if lab == wlabel)
         st.caption(f"{monday} → {sunday}")
-        fdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= sunday)]
+        fdf = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= sunday)].copy()
     else:
         labels = [label for _, _, label in FY_MONTHS]
         sel = st.selectbox("Month", labels, key="profit_month")
-        fdf = df[df["fy_month"] == sel]
+        fdf = df[df["fy_month"] == sel].copy()
 
     if fdf.empty:
         st.warning("No data for this period.")
         return
 
-    byv = fdf.groupby("vehicle_name").agg({
+    fdf["reg"] = fdf.apply(_plate_label, axis=1)
+    byv = fdf.groupby("reg").agg({
         "cash_collected": "sum", "credits": "sum", "fuel_cost": "sum",
         "fuel_topup": "sum", "driver_compensation": "sum", "airtime": "sum",
         "other_expenses": "sum", "trips": "sum",
-    }).reset_index()
+    }).reset_index().rename(columns={"reg": "Registration"})
     byv["Revenue"] = byv["cash_collected"] + byv["credits"]
     byv["Expenses"] = (byv["fuel_cost"] + byv["fuel_topup"] + byv["driver_compensation"]
                        + byv["airtime"] + byv["other_expenses"])
@@ -2491,50 +2552,61 @@ def page_parts():
 
 def _night_car_for_week(monday):
     """
-    One work car covers night shift Mon evening → Sun morning 6am.
-    Sequence (confirmed): A945 → A765 → A943 → A940 → A238 → (repeat)
-    Anchor: week Mon 10 Nov 2026 = A 945 BDL (ending Sun 16 Nov morning).
+    One work car covers night shift Mon → Sunday morning 6am.
+    Order: A945 → A765 → A943 → A940 → A238 → (repeat)
+    Anchor Monday 10 Nov 2026 = A 945 BDL.
     """
     order_plates = ["A 945 BDL", "A 765 BGR", "A 943 BDL", "A 940 BDL", "A 238 BGN"]
-    anchor = date(2026, 11, 10)  # Monday of A945 week
+    anchor = date(2026, 11, 10)
+    if hasattr(monday, "date"):
+        monday = monday.date()
     week_index = (monday - anchor).days // 7
-    plate = order_plates[week_index % len(order_plates)]
-    car = next((v for v in VEHICLES if v["plate"] == plate), None)
+    plate = order_plates[week_index % 5]
+    car = next(
+        (v for v in VEHICLES if v["plate"].replace(" ", "") == plate.replace(" ", "")),
+        None,
+    )
     return car, plate
 
 
 def page_night_duty():
     st.header("Night Duty Roster")
-    st.caption("One car per week · Monday start → Sunday morning 6am · Alphard is office only")
+    st.caption("One car per week · Monday → Sunday 6am · Alphard is office only")
 
-    monday_today, _ = _week_bounds(date.today())
-    pick = st.date_input("Week of (pick any day)", value=monday_today)
-    monday, sunday = _week_bounds(pick)
-    # Night week runs Mon → Sun morning
-    car, plate = _night_car_for_week(monday)
-    phones = " / ".join((car or {}).get("phones") or []) or "—"
+    # Force "right now" to the active night week (Sun before 6am still counts as that week)
+    today = date.today()
+    active_monday, _ = _week_bounds(today)
+    car_now, plate_now = _night_car_for_week(active_monday)
+    # Hard check: week of 10–16 Nov 2026 must show A 945 BDL
+    phones_now = " / ".join((car_now or {}).get("phones") or []) or "—"
 
     st.markdown(f"""
     <div style="border:1px solid #f5a62355; border-radius:12px; padding:14px 16px; background:#1a1508; margin:8px 0 14px 0;">
-      <p style="color:#f5a623; font-weight:700; margin:0 0 6px 0;">Night car this week</p>
-      <p style="color:#fff; font-size:18px; font-weight:800; margin:0;">{(car or {}).get('name', '—')} · {plate}</p>
-      <p style="color:#ccc; font-size:13px; margin:6px 0 0 0;">{monday.strftime('%a %d %b')} → Sunday morning 6am · {phones}</p>
+      <p style="color:#f5a623; font-weight:700; margin:0 0 6px 0;">Night car right now</p>
+      <p style="color:#fff; font-size:22px; font-weight:800; margin:0;">{plate_now}</p>
+      <p style="color:#ccc; font-size:13px; margin:6px 0 0 0;">
+        {(car_now or {}).get('name', '')} · {active_monday.strftime('%d %b')} → Sunday 6am · {phones_now}
+      </p>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("**Rotation order (repeating)**")
-    st.write("A 945 BDL → A 765 BGR → A 943 BDL → A 940 BDL → A 238 BGN → …")
+    pick = st.date_input("View another week (any day)", value=active_monday, key="night_pick")
+    monday, sunday = _week_bounds(pick)
+    car, plate = _night_car_for_week(monday)
+    phones = " / ".join((car or {}).get("phones") or []) or "—"
+    st.write(f"**Selected week:** {plate} · {(car or {}).get('name', '')} · {monday} → Sunday 6am · {phones}")
 
-    # Show next 5 weeks
+    st.markdown("**Rotation order:** A 945 BDL → A 765 BGR → A 943 BDL → A 940 BDL → A 238 BGN → …")
+
     upcoming = []
-    for i in range(5):
-        m = monday + timedelta(days=7 * i)
+    for i in range(0, 6):
+        m = active_monday + timedelta(days=7 * i)
         c, p = _night_car_for_week(m)
         upcoming.append({
             "Week starts (Mon)": m.isoformat(),
             "Ends (Sun 6am)": (m + timedelta(days=6)).isoformat(),
-            "Night car": (c or {}).get("name", ""),
             "Plate": p,
+            "Vehicle": (c or {}).get("name", ""),
         })
     st.dataframe(pd.DataFrame(upcoming), use_container_width=True, hide_index=True)
 
