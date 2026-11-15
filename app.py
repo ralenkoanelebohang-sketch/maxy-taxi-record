@@ -535,6 +535,10 @@ def ensure_extra_tables():
                 {id_col}, entry_date TEXT NOT NULL, vehicle_name TEXT, plate TEXT,
                 item TEXT, amount {real_type} DEFAULT 0, notes TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP)""",
+            """CREATE TABLE IF NOT EXISTS app_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )""",
         ]:
             try:
                 c.execute(sql)
@@ -1121,6 +1125,70 @@ def generate_quotation_pdf(quote, client=None):
     buffer.seek(0)
     return buffer
 
+
+def generate_weekly_summary_pdf(monday, sunday, wdf, byv, cash, credits, fuel, topup, dcomp, airtime, other, trips, net):
+    """Simple branded weekly summary PDF."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=14*mm, rightMargin=14*mm, topMargin=12*mm, bottomMargin=14*mm)
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle("WT", parent=styles["Heading1"], fontSize=14, textColor=colors.HexColor("#1a1a1a"), alignment=TA_CENTER)
+    normal = ParagraphStyle("WN", parent=styles["Normal"], fontSize=9, leading=12)
+    elements = []
+
+    banner = os.path.join(os.path.dirname(__file__), "letterhead_banner.jpg")
+    header = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
+    if os.path.exists(banner):
+        elements.append(Image(banner, width=180*mm, height=28*mm))
+    elif os.path.exists(header):
+        elements.append(Image(header, width=180*mm, height=28*mm))
+    else:
+        elements.append(Paragraph("<b>MAXY TAXI TRANSPORT</b>", title))
+    elements.append(Spacer(1, 4*mm))
+    elements.append(Paragraph(f"<b>Weekly Summary</b> · {monday.isoformat()} → {sunday.isoformat()}", title))
+    elements.append(Spacer(1, 3*mm))
+
+    summary = [
+        ["Cash", money(cash), "Credits", money(credits)],
+        ["Fuel", money(fuel), "Top-up", money(topup)],
+        ["Driver comp", money(dcomp), "Airtime", money(airtime)],
+        ["Other", money(other), "Trips", str(int(trips))],
+        ["Net", money(net), "", ""],
+    ]
+    t = Table(summary, colWidths=[35*mm, 40*mm, 35*mm, 40*mm])
+    t.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTNAME", (0, -1), (1, -1), "Helvetica-Bold"),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#c9a227")),
+        ("TEXTCOLOR", (2, 0), (2, -1), colors.HexColor("#c9a227")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(t)
+    elements.append(Spacer(1, 5*mm))
+    elements.append(Paragraph("<b>By registration</b>", normal))
+    elements.append(Spacer(1, 2*mm))
+
+    if byv is not None and not byv.empty:
+        cols = list(byv.columns)
+        data = [cols] + [[str(x) for x in row] for row in byv.values.tolist()]
+        tw = Table(data, repeatRows=1)
+        tw.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#f5a623")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#cccccc")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f3e8")]),
+        ]))
+        elements.append(tw)
+
+    elements.append(Spacer(1, 8*mm))
+    elements.append(Paragraph("Maxy Taxi Transport · Sole trader · Maseru", normal))
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 # ---------------------- UI HELPERS ----------------------
 def money(x):
     try:
@@ -1203,8 +1271,29 @@ def prepare_records_df():
     return df
 
 # ---------------------- PAGES ----------------------
+def _get_meta(key, default=""):
+    try:
+        df = query_df("SELECT value FROM app_meta WHERE key = ?", (key,))
+        if not df.empty:
+            return str(df.iloc[0]["value"] or default)
+    except Exception:
+        pass
+    return default
+
+
+def _set_meta(key, value):
+    try:
+        ensure_extra_tables()
+        existing = query_df("SELECT key FROM app_meta WHERE key = ?", (key,))
+        if existing is not None and not existing.empty:
+            execute("UPDATE app_meta SET value = ? WHERE key = ?", (str(value), key))
+        else:
+            execute("INSERT INTO app_meta (key, value) VALUES (?, ?)", (key, str(value)))
+    except Exception:
+        pass
+
+
 def page_dashboard():
-    # Logo header
     logo_dark = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
     logo_trans = os.path.join(os.path.dirname(__file__), "logo_transparent.png")
     logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
@@ -1218,24 +1307,96 @@ def page_dashboard():
             st.image(logo_clean, use_container_width=True)
     with col_t:
         st.header("Dashboard")
-        st.caption("Financial Year 2026 – 2027 (June to May)")
+        st.caption("Financial Year 2026 – 2027 (June to May) · Sole trader")
+
+    # Backup reminder (red)
+    last_bak = _get_meta("last_backup_date", "")
+    if last_bak:
+        try:
+            lb = date.fromisoformat(last_bak[:10])
+            days = (date.today() - lb).days
+            if days > 7:
+                st.markdown(
+                    f"<p style='color:#e74c3c;font-weight:800;font-size:15px;'>"
+                    f"⚠ BACKUP OVERDUE — last Excel backup was {days} days ago ({lb.isoformat()}). "
+                    f"Go to Backup / Export and download a fresh copy.</p>",
+                    unsafe_allow_html=True,
+                )
+        except Exception:
+            st.markdown(
+                "<p style='color:#e74c3c;font-weight:800;'>⚠ BACKUP REMINDER — download a weekly Excel backup.</p>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown(
+            "<p style='color:#e74c3c;font-weight:800;font-size:15px;'>"
+            "⚠ NO BACKUP RECORDED YET — go to Backup / Export and download Excel this week.</p>",
+            unsafe_allow_html=True,
+        )
 
     df = prepare_records_df()
     today = date.today()
+    monday, sunday = _week_bounds(today)
 
-    # Quick today / week cards
-    if not df.empty:
-        today_df = df[df['record_date'].dt.date == today]
-        week_start = today - timedelta(days=today.weekday())
-        week_df = df[df['record_date'].dt.date >= week_start]
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Today Cash", money(today_df['cash_collected'].sum()))
-        c2.metric("This Week Cash", money(week_df['cash_collected'].sum()))
-        c3.metric("Today Credits", money(today_df['credits'].sum()))
-        c4.metric("Today Fuel + Top-up", money(today_df['fuel_cost'].sum() + today_df['fuel_topup'].sum()))
-    else:
+    # ===== TODAY + THIS WEEK STRIP =====
+    st.markdown("### Today & this week")
+    if df.empty:
         st.info("No daily records yet. Go to Daily Entry to start logging.")
+    else:
+        today_df = df[df["record_date"].dt.date == today]
+        week_df = df[(df["record_date"].dt.date >= monday) & (df["record_date"].dt.date <= sunday)]
+
+        t_cash = float(today_df["cash_collected"].sum())
+        t_cred = float(today_df["credits"].sum())
+        t_fuel = float(today_df["fuel_cost"].sum() + today_df["fuel_topup"].sum())
+        t_trips = int(today_df["trips"].sum()) if not today_df.empty else 0
+        t_exp = float(
+            today_df["fuel_cost"].sum() + today_df["fuel_topup"].sum()
+            + today_df["driver_compensation"].sum() + today_df["airtime"].sum()
+            + today_df["other_expenses"].sum()
+        )
+        t_net = t_cash + t_cred - t_exp
+
+        w_cash = float(week_df["cash_collected"].sum())
+        w_cred = float(week_df["credits"].sum())
+        w_fuel = float(week_df["fuel_cost"].sum() + week_df["fuel_topup"].sum())
+        w_trips = int(week_df["trips"].sum()) if not week_df.empty else 0
+        w_exp = float(
+            week_df["fuel_cost"].sum() + week_df["fuel_topup"].sum()
+            + week_df["driver_compensation"].sum() + week_df["airtime"].sum()
+            + week_df["other_expenses"].sum()
+        )
+        w_net = w_cash + w_cred - w_exp
+
+        st.markdown(
+            f"<div style='border:1px solid #f5a62355;border-radius:12px;padding:12px;margin-bottom:10px;background:#141210;'>"
+            f"<b style='color:#f5a623;'>TODAY</b> &nbsp; "
+            f"Cash <b>{money(t_cash)}</b> &nbsp;·&nbsp; Credits <b>{money(t_cred)}</b> &nbsp;·&nbsp; "
+            f"Fuel <b>{money(t_fuel)}</b> &nbsp;·&nbsp; Trips <b>{t_trips}</b> &nbsp;·&nbsp; "
+            f"Net <b style='color:#2ecc71;'>{money(t_net)}</b></div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<div style='border:1px solid #2ecc7155;border-radius:12px;padding:12px;margin-bottom:12px;background:#101810;'>"
+            f"<b style='color:#2ecc71;'>THIS WEEK</b> ({monday} → {sunday}) &nbsp; "
+            f"Cash <b>{money(w_cash)}</b> &nbsp;·&nbsp; Credits <b>{money(w_cred)}</b> &nbsp;·&nbsp; "
+            f"Fuel <b>{money(w_fuel)}</b> &nbsp;·&nbsp; Trips <b>{w_trips}</b> &nbsp;·&nbsp; "
+            f"Net <b style='color:#2ecc71;'>{money(w_net)}</b></div>",
+            unsafe_allow_html=True,
+        )
+
+        # Credit vs cash split (this week + selected later month)
+        s1, s2 = st.columns(2)
+        s1.metric("Week street cash", money(w_cash))
+        s2.metric("Week contract credits", money(w_cred))
+
+        # WhatsApp copy text
+        wa = (
+            f"Maxy Taxi week {monday.strftime('%d %b')}–{sunday.strftime('%d %b')}: "
+            f"cash {money(w_cash)}, credits {money(w_cred)}, fuel {money(w_fuel)}, "
+            f"trips {w_trips}, net {money(w_net)}"
+        )
+        st.text_area("WhatsApp summary (copy)", value=wa, height=70, key="dash_wa")
 
     # ===== SELECT ONE MONTH =====
     st.subheader("Monthly Summary")
@@ -1300,17 +1461,34 @@ def page_dashboard():
                              - by_veh['fuel_cost'] - by_veh['fuel_topup']
                              - by_veh['driver_compensation'] - by_veh['airtime']
                              - by_veh['other_expenses'])
-            by_veh.columns = ['Vehicle', 'Cash', 'Credits', 'Fuel', 'Top-up', 'Driver Comp', 'Airtime', 'Other', 'Trips', 'Net']
-            st.dataframe(
-                by_veh.style.format({
-                    'Cash': 'M {:,.0f}', 'Credits': 'M {:,.0f}',
-                    'Fuel': 'M {:,.0f}', 'Top-up': 'M {:,.0f}',
-                    'Driver Comp': 'M {:,.0f}', 'Airtime': 'M {:,.0f}',
-                    'Other': 'M {:,.0f}', 'Net': 'M {:,.0f}',
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
+            # Prefer registration numbers
+            if "plate" in mdf.columns:
+                mdf2 = mdf.copy()
+                mdf2["reg"] = mdf2["plate"].fillna(mdf2["vehicle_name"])
+                by_veh = mdf2.groupby("reg").agg({
+                    "cash_collected": "sum", "credits": "sum", "fuel_cost": "sum",
+                    "fuel_topup": "sum", "driver_compensation": "sum", "airtime": "sum",
+                    "other_expenses": "sum", "trips": "sum",
+                }).reset_index()
+            by_veh["Net"] = (by_veh["cash_collected"] + by_veh["credits"]
+                             - by_veh["fuel_cost"] - by_veh["fuel_topup"]
+                             - by_veh["driver_compensation"] - by_veh["airtime"]
+                             - by_veh["other_expenses"])
+            by_veh.columns = ["Registration", "Cash", "Credits", "Fuel", "Top-up", "Driver Comp", "Airtime", "Other", "Trips", "Net"]
+            st.dataframe(by_veh, use_container_width=True, hide_index=True)
+
+            # Fuel efficiency by plate (uses Lesotho petrol 95 for month)
+            price = LESOTHO_PETROL_95.get(sel_month)
+            if price and not mdf.empty:
+                st.markdown(f"**Fuel efficiency** (Petrol 95 ≈ M{price:.2f}/L)")
+                fe = mdf.copy()
+                fe["reg"] = fe["plate"].fillna(fe["vehicle_name"]) if "plate" in fe.columns else fe["vehicle_name"]
+                fe["fuel_spend"] = fe["fuel_cost"].fillna(0) + fe["fuel_topup"].fillna(0)
+                g = fe.groupby("reg").agg(fuel_spend=("fuel_spend", "sum"), trips=("trips", "sum")).reset_index()
+                g["Est. litres"] = (g["fuel_spend"] / price).round(1)
+                g["M per trip"] = g.apply(lambda r: (r["fuel_spend"] / r["trips"]) if r["trips"] else 0, axis=1).round(1)
+                g.columns = ["Registration", "Fuel+top-up (M)", "Trips", "Est. litres", "M per trip"]
+                st.dataframe(g, use_container_width=True, hide_index=True)
         else:
             st.info(f"No records for {sel_month} yet.")
 
@@ -1341,19 +1519,35 @@ def page_daily_entry():
     st.caption("Type whole amounts (e.g. 200) — saved as 200.00 · max 2 entries per car per day")
 
     veh_dict = vehicle_options()
-    r1c1, r1c2 = st.columns(2)
-    with r1c1:
-        record_date = st.date_input("Date", value=date.today(), key="de_date")
-    with r1c2:
-        vehicle_label = st.selectbox("Vehicle", list(veh_dict.keys()), key="de_vehicle")
-    vehicle = veh_dict[vehicle_label]
-    auto_driver = _auto_driver_for(vehicle['name'], vehicle['plate'])
+    labels = list(veh_dict.keys())
 
-    # How many records already for this car on this date?
+    r0c1, r0c2, r0c3 = st.columns(3)
+    with r0c1:
+        record_date = st.date_input("Date", value=date.today(), key="de_date")
+    with r0c2:
+        duty = st.selectbox("Duty", ["Day", "Night"], key="de_duty")
+    with r0c3:
+        # Night → auto-select roster car (still changeable)
+        default_idx = 0
+        if duty == "Night":
+            mon, _ = _week_bounds(record_date)
+            _, night_plate = _night_car_for_week(mon)
+            for i, lab in enumerate(labels):
+                if night_plate.replace(" ", "") in lab.replace(" ", ""):
+                    default_idx = i
+                    break
+            st.markdown(
+                f"<p style='color:#f5a623;font-size:12px;margin:0;'>Night roster: <b>{night_plate}</b></p>",
+                unsafe_allow_html=True,
+            )
+        vehicle_label = st.selectbox("Vehicle", labels, index=default_idx, key="de_vehicle")
+    vehicle = veh_dict[vehicle_label]
+    auto_driver = _auto_driver_for(vehicle["name"], vehicle["plate"])
+
     try:
         existing = query_df(
             "SELECT id, duty, cash_collected, fuel_cost, driver_name FROM daily_records WHERE record_date = ? AND plate = ? ORDER BY id",
-            (record_date.isoformat(), vehicle['plate']),
+            (record_date.isoformat(), vehicle["plate"]),
         )
         same_day_count = len(existing)
     except Exception:
@@ -1361,32 +1555,30 @@ def page_daily_entry():
         same_day_count = 0
 
     if same_day_count >= 2:
-        st.error(
-            f"Already **{same_day_count}** records for **{vehicle['name']}** on **{record_date}**. "
-            "Limit is 2 per car per day. Check **Records → Edit** if one was a mistake."
+        st.markdown(
+            f"<p style='color:#e74c3c;font-weight:800;font-size:15px;'>"
+            f"⚠ ALREADY {same_day_count} RECORDS for {vehicle['plate']} on {record_date}. "
+            f"LIMIT IS 2 PER CAR PER DAY. Check Records → Edit if one was a mistake.</p>",
+            unsafe_allow_html=True,
         )
         if not existing.empty:
             st.dataframe(existing, use_container_width=True, hide_index=True)
     elif same_day_count == 1:
-        st.warning(
-            f"There is already **1** record for **{vehicle['name']}** on **{record_date}**. "
-            "You can save one more (e.g. Day + Night). A third entry will be blocked."
+        st.markdown(
+            f"<p style='color:#e74c3c;font-weight:700;font-size:14px;'>"
+            f"⚠ ALREADY 1 RECORD for {vehicle['plate']} on {record_date}. "
+            f"You can save one more (e.g. Day + Night). A third entry will be blocked.</p>",
+            unsafe_allow_html=True,
         )
 
     with st.form("daily_form", clear_on_submit=True):
-        # Required daily fields — red border, same line
         st.markdown("""
-        <style>
-        div[data-testid="stForm"] div[data-testid="column"]:has(input) input {
-            border-radius: 8px !important;
-        }
-        </style>
         <div style="border:1.5px solid #e74c3c; border-radius:10px; padding:10px 8px 4px 8px; margin-bottom:10px;">
           <p style="color:#e74c3c; font-size:12px; font-weight:700; margin:0 0 6px 0;">MAIN DAILY FIGURES</p>
         </div>
         """, unsafe_allow_html=True)
 
-        r1, r2, r3, r4, r5 = st.columns(5)
+        r1, r2, r3, r4 = st.columns(4)
         with r1:
             cash_s = st.text_input("Cash (M)", value="", placeholder="e.g. 200")
         with r2:
@@ -1395,8 +1587,6 @@ def page_daily_entry():
             topup_s = st.text_input("Fuel top-up (M)", value="", placeholder="Office")
         with r4:
             trips_s = st.text_input("Trips", value="", placeholder="e.g. 5")
-        with r5:
-            duty = st.selectbox("Duty", ["Day", "Night"], index=0)
 
         a1, a2, a3 = st.columns(3)
         with a1:
@@ -2391,6 +2581,26 @@ def page_weekly_summary():
                         if col in wdf.columns:
                             st.write(f"- {label}: **{money(wdf[col].sum())}**")
 
+                    wa = (
+                        f"Maxy Taxi week {monday.strftime('%d %b')}–{sunday.strftime('%d %b')}: "
+                        f"cash {money(cash)}, credits {money(credits)}, fuel {money(fuel)}, "
+                        f"trips {trips}, net {money(net)}"
+                    )
+                    st.text_area("WhatsApp summary (copy)", value=wa, height=70, key="ws_wa")
+
+                    try:
+                        pdf_bytes = generate_weekly_summary_pdf(monday, sunday, wdf, byv, cash, credits, fuel, topup, dcomp, airtime, other, trips, net)
+                        st.download_button(
+                            "Download weekly summary PDF",
+                            pdf_bytes,
+                            f"maxy_weekly_{monday.isoformat()}.pdf",
+                            "application/pdf",
+                            use_container_width=True,
+                            type="primary",
+                        )
+                    except Exception as e:
+                        st.caption(f"PDF unavailable: {e}")
+
     with tab_m:
         month_labels = [label for _, _, label in FY_MONTHS]
         sel = st.selectbox("Month", month_labels, key="sum_month")
@@ -2828,8 +3038,16 @@ After that, data survives sleep and restarts.
                 f"maxy_taxi_backup_{date.today().isoformat()}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
-                type="primary"
+                type="primary",
+                key="dl_full_xlsx",
+                on_click=_set_meta,
+                args=("last_backup_date", date.today().isoformat()),
             )
+        # Record backup time when user is on this page after downloading
+        if st.button("Mark backup done today", use_container_width=True):
+            _set_meta("last_backup_date", date.today().isoformat())
+            st.success("Backup date saved — red reminder will clear for 7 days.")
+            st.rerun()
         st.success("Tip: Save every backup to your Google Drive folder so you can restore anytime.")
     else:
         st.info("No data in the app right now. Use **Restore from backup** above to bring your data back.")
