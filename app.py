@@ -779,6 +779,61 @@ def create_pdf_buffer():
     buffer = BytesIO()
     return buffer
 
+def _pdf_letterhead_elements(styles=None):
+    """Clean letterhead matching official receipt — no black side borders."""
+    elements = []
+    base = os.path.dirname(__file__)
+    for name, w, h in [
+        ("letterhead_clean.jpg", 186*mm, 30*mm),
+        ("letterhead_header.png", 186*mm, 36*mm),
+        ("letterhead_banner.jpg", 186*mm, 32*mm),
+        ("logo.jpg", 70*mm, 22*mm),
+    ]:
+        path = os.path.join(base, name)
+        if os.path.exists(path):
+            img = Image(path, width=w, height=h)
+            img.hAlign = "CENTER"
+            elements.append(img)
+            break
+    else:
+        styles = styles or getSampleStyleSheet()
+        elements.append(Paragraph(
+            "<b>MAXY TAXI</b>",
+            ParagraphStyle("LH", parent=styles["Heading1"], fontSize=14, alignment=TA_CENTER),
+        ))
+    elements.append(HRFlowable(
+        width="100%", thickness=1.5, color=colors.HexColor("#f5a623"),
+        spaceBefore=1*mm, spaceAfter=4*mm,
+    ))
+    return elements
+
+
+def _pdf_draw_watermark(canvas, doc=None):
+    """Faded centre taxi watermark (same style as sample receipt)."""
+    canvas.saveState()
+    base = os.path.dirname(__file__)
+    path = None
+    for name in ("watermark_taxi.png", "logo_transparent.png", "logo_clean.png"):
+        p = os.path.join(base, name)
+        if os.path.exists(p):
+            path = p
+            break
+    if path:
+        try:
+            page_w, page_h = A4
+            w, h = 115*mm, 88*mm
+            x = (page_w - w) / 2.0
+            y = (page_h - h) / 2.0 - 8*mm
+            try:
+                canvas.setFillAlpha(0.09)
+            except Exception:
+                pass
+            canvas.drawImage(path, x, y, width=w, height=h, mask="auto", preserveAspectRatio=True)
+        except Exception:
+            pass
+    canvas.restoreState()
+
+
 def generate_invoice_pdf(invoice, client=None):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
@@ -802,22 +857,7 @@ def generate_invoice_pdf(invoice, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9, leading=12)
 
-    # Letterhead banner + yellow bottom border
-    header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
-    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
-    if os.path.exists(header_path):
-        header = Image(header_path, width=186*mm, height=38*mm)
-        header.hAlign = 'CENTER'
-        elements.append(header)
-    elif os.path.exists(logo_path):
-        logo = Image(logo_path, width=70*mm, height=22*mm)
-        logo.hAlign = 'CENTER'
-        elements.append(logo)
-        elements.append(Paragraph(f"{BUSINESS_PHONE}  |  {BUSINESS_WHATSAPP}  |  {BUSINESS_EMAIL}", subtitle))
-    else:
-        elements.append(Paragraph("MAXY TAXI", title_style))
-        elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
-    elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#f5a623"), spaceBefore=1*mm, spaceAfter=4*mm))
+    elements.extend(_pdf_letterhead_elements(styles))
 
     elements.append(Paragraph("INVOICE", ParagraphStyle('InvTitle', parent=styles['Heading1'],
                                                          fontSize=13, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
@@ -953,6 +993,7 @@ def generate_invoice_pdf(invoice, client=None):
 
     # Footer fixed at the very bottom of every page
     def _draw_inv_footer(canvas, doc_):
+        _pdf_draw_watermark(canvas, doc_)
         canvas.saveState()
         page_w, _ = A4
         canvas.setStrokeColor(colors.HexColor("#f5a623"))
@@ -987,22 +1028,7 @@ def generate_quotation_pdf(quote, client=None):
     right = ParagraphStyle('Right', parent=styles['Normal'], fontSize=9, alignment=TA_RIGHT)
     bold = ParagraphStyle('Bold', parent=styles['Normal'], fontSize=9)
 
-    # Letterhead banner + yellow bottom border
-    header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
-    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
-    if os.path.exists(header_path):
-        header = Image(header_path, width=186*mm, height=38*mm)
-        header.hAlign = 'CENTER'
-        elements.append(header)
-    elif os.path.exists(logo_path):
-        logo = Image(logo_path, width=70*mm, height=22*mm)
-        logo.hAlign = 'CENTER'
-        elements.append(logo)
-        elements.append(Paragraph(f"{BUSINESS_PHONE}  |  {BUSINESS_WHATSAPP}  |  {BUSINESS_EMAIL}", subtitle))
-    else:
-        elements.append(Paragraph("MAXY TAXI", title_style))
-        elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
-    elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#f5a623"), spaceBefore=1*mm, spaceAfter=4*mm))
+    elements.extend(_pdf_letterhead_elements(styles))
 
     elements.append(Paragraph("QUOTATION", ParagraphStyle('QTitle', parent=styles['Heading1'],
                                                            fontSize=13, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
@@ -1120,6 +1146,7 @@ def generate_quotation_pdf(quote, client=None):
 
     # Footer fixed at the very bottom of every page (never mid-page)
     def _draw_quote_footer(canvas, doc_):
+        _pdf_draw_watermark(canvas, doc_)
         canvas.saveState()
         page_w, _ = A4
         # Soft gold line above footer
@@ -1160,26 +1187,7 @@ def generate_receipt_pdf(receipt):
     right = ParagraphStyle("Right", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT)
     bold = ParagraphStyle("Bold", parent=styles["Normal"], fontSize=10, leading=13)
 
-    header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
-    banner_path = os.path.join(os.path.dirname(__file__), "letterhead_banner.jpg")
-    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
-    if os.path.exists(header_path):
-        img = Image(header_path, width=186*mm, height=38*mm)
-        img.hAlign = "CENTER"
-        elements.append(img)
-    elif os.path.exists(banner_path):
-        img = Image(banner_path, width=186*mm, height=32*mm)
-        img.hAlign = "CENTER"
-        elements.append(img)
-    elif os.path.exists(logo_path):
-        img = Image(logo_path, width=70*mm, height=22*mm)
-        img.hAlign = "CENTER"
-        elements.append(img)
-    else:
-        elements.append(Paragraph("MAXY TAXI TRANSPORT", title_style))
-        elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
-
-    elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#f5a623"), spaceBefore=1*mm, spaceAfter=4*mm))
+    elements.extend(_pdf_letterhead_elements(styles))
     elements.append(Paragraph(
         "RECEIPT",
         ParagraphStyle("RTitle", parent=styles["Heading1"], fontSize=14, alignment=TA_CENTER,
@@ -1252,6 +1260,7 @@ def generate_receipt_pdf(receipt):
     )))
 
     def _footer(canvas, doc_):
+        _pdf_draw_watermark(canvas, doc_)
         canvas.saveState()
         page_w, _ = A4
         canvas.setStrokeColor(colors.HexColor("#f5a623"))
@@ -1276,15 +1285,8 @@ def generate_weekly_summary_pdf(monday, sunday, wdf, byv, cash, credits, fuel, t
     normal = ParagraphStyle("WN", parent=styles["Normal"], fontSize=9, leading=12)
     elements = []
 
-    banner = os.path.join(os.path.dirname(__file__), "letterhead_banner.jpg")
-    header = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
-    if os.path.exists(banner):
-        elements.append(Image(banner, width=180*mm, height=28*mm))
-    elif os.path.exists(header):
-        elements.append(Image(header, width=180*mm, height=28*mm))
-    else:
-        elements.append(Paragraph("<b>MAXY TAXI TRANSPORT</b>", title))
-    elements.append(Spacer(1, 4*mm))
+    elements.extend(_pdf_letterhead_elements(styles))
+    elements.append(Spacer(1, 2*mm))
     elements.append(Paragraph(f"<b>Weekly Summary</b> · {monday.isoformat()} → {sunday.isoformat()}", title))
     elements.append(Spacer(1, 3*mm))
 
