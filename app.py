@@ -780,36 +780,59 @@ def create_pdf_buffer():
     return buffer
 
 def _pdf_letterhead_elements(styles=None):
-    """Clean letterhead matching official receipt — no black side borders."""
+    """
+    Professional letterhead: logo left + contacts right + gold rule only.
+    Built in layout (not a cropped screenshot) so text is never cut off.
+    """
+    styles = styles or getSampleStyleSheet()
     elements = []
     base = os.path.dirname(__file__)
-    for name, w, h in [
-        ("letterhead_clean.jpg", 186*mm, 30*mm),
-        ("letterhead_header.png", 186*mm, 36*mm),
-        ("letterhead_banner.jpg", 186*mm, 32*mm),
-        ("logo.jpg", 70*mm, 22*mm),
-    ]:
-        path = os.path.join(base, name)
-        if os.path.exists(path):
-            img = Image(path, width=w, height=h)
-            img.hAlign = "CENTER"
-            elements.append(img)
+
+    logo_path = None
+    for name in ("logo_clean.png", "logo_transparent.png", "logo_icon.jpg", "logo.jpg"):
+        p = os.path.join(base, name)
+        if os.path.exists(p):
+            logo_path = p
             break
+
+    contact_style = ParagraphStyle(
+        "ContactR", parent=styles["Normal"], fontSize=8, leading=11,
+        textColor=colors.HexColor("#333333"), alignment=TA_RIGHT,
+    )
+    contacts = Paragraph(
+        "+266 27333388 | 68335933<br/>"
+        "+266 56432571<br/>"
+        "Puma House 12 United Nations road<br/>"
+        "maxytaxicab@gmail.com",
+        contact_style,
+    )
+
+    if logo_path:
+        logo = Image(logo_path, width=72*mm, height=22*mm)
+        logo.hAlign = "LEFT"
+        row = Table([[logo, contacts]], colWidths=[100*mm, 80*mm])
+        row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        elements.append(row)
     else:
-        styles = styles or getSampleStyleSheet()
-        elements.append(Paragraph(
-            "<b>MAXY TAXI</b>",
-            ParagraphStyle("LH", parent=styles["Heading1"], fontSize=14, alignment=TA_CENTER),
-        ))
+        elements.append(Paragraph("<b>MAXY TAXI</b>", ParagraphStyle(
+            "LH", parent=styles["Heading1"], fontSize=14, alignment=TA_CENTER,
+        )))
+
     elements.append(HRFlowable(
-        width="100%", thickness=1.5, color=colors.HexColor("#f5a623"),
-        spaceBefore=1*mm, spaceAfter=4*mm,
+        width="100%", thickness=1.8, color=colors.HexColor("#f5a623"),
+        spaceBefore=2*mm, spaceAfter=4*mm,
     ))
     return elements
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Faded centre taxi watermark (same style as sample receipt)."""
+    """Light centre watermark using pre-faded PNG (visible on white paper)."""
     canvas.saveState()
     base = os.path.dirname(__file__)
     path = None
@@ -821,14 +844,13 @@ def _pdf_draw_watermark(canvas, doc=None):
     if path:
         try:
             page_w, page_h = A4
-            w, h = 115*mm, 88*mm
+            w, h = 130*mm, 100*mm
             x = (page_w - w) / 2.0
-            y = (page_h - h) / 2.0 - 8*mm
-            try:
-                canvas.setFillAlpha(0.09)
-            except Exception:
-                pass
-            canvas.drawImage(path, x, y, width=w, height=h, mask="auto", preserveAspectRatio=True)
+            y = page_h / 2.0 - h / 2.0 - 5*mm
+            canvas.drawImage(
+                path, x, y, width=w, height=h,
+                mask="auto", preserveAspectRatio=True,
+            )
         except Exception:
             pass
     canvas.restoreState()
