@@ -539,6 +539,18 @@ def ensure_extra_tables():
                 key TEXT PRIMARY KEY,
                 value TEXT
             )""",
+            f"""CREATE TABLE IF NOT EXISTS receipts (
+                {id_col},
+                receipt_number TEXT UNIQUE,
+                receipt_date TEXT,
+                received_from TEXT,
+                description TEXT,
+                amount {real_type} DEFAULT 0,
+                payment_method TEXT DEFAULT 'Cash',
+                related_invoice TEXT,
+                notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )""",
         ]:
             try:
                 c.execute(sql)
@@ -1122,6 +1134,135 @@ def generate_quotation_pdf(quote, client=None):
         canvas.restoreState()
 
     doc.build(elements, onFirstPage=_draw_quote_footer, onLaterPages=_draw_quote_footer)
+    buffer.seek(0)
+    return buffer
+
+
+def generate_receipt_pdf(receipt):
+    """Branded payment receipt PDF."""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        rightMargin=12*mm, leftMargin=12*mm,
+        topMargin=5*mm, bottomMargin=20*mm,
+    )
+    styles = getSampleStyleSheet()
+    elements = []
+    title_style = ParagraphStyle(
+        "Title", parent=styles["Heading1"], fontSize=16, alignment=TA_CENTER,
+        textColor=colors.HexColor("#1a1a1a"),
+    )
+    subtitle = ParagraphStyle(
+        "Subtitle", parent=styles["Normal"], fontSize=8, alignment=TA_CENTER,
+        textColor=colors.HexColor("#555555"),
+    )
+    normal = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=10, leading=13)
+    right = ParagraphStyle("Right", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT)
+    bold = ParagraphStyle("Bold", parent=styles["Normal"], fontSize=10, leading=13)
+
+    header_path = os.path.join(os.path.dirname(__file__), "letterhead_header.png")
+    banner_path = os.path.join(os.path.dirname(__file__), "letterhead_banner.jpg")
+    logo_path = os.path.join(os.path.dirname(__file__), "logo.jpg")
+    if os.path.exists(header_path):
+        img = Image(header_path, width=186*mm, height=38*mm)
+        img.hAlign = "CENTER"
+        elements.append(img)
+    elif os.path.exists(banner_path):
+        img = Image(banner_path, width=186*mm, height=32*mm)
+        img.hAlign = "CENTER"
+        elements.append(img)
+    elif os.path.exists(logo_path):
+        img = Image(logo_path, width=70*mm, height=22*mm)
+        img.hAlign = "CENTER"
+        elements.append(img)
+    else:
+        elements.append(Paragraph("MAXY TAXI TRANSPORT", title_style))
+        elements.append(Paragraph("SAFE • QUICK • RELIABLE", subtitle))
+
+    elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#f5a623"), spaceBefore=1*mm, spaceAfter=4*mm))
+    elements.append(Paragraph(
+        "RECEIPT",
+        ParagraphStyle("RTitle", parent=styles["Heading1"], fontSize=14, alignment=TA_CENTER,
+                       textColor=colors.HexColor("#1a1a1a"), spaceAfter=3*mm),
+    ))
+
+    meta = [
+        [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", normal),
+         Paragraph(f"<b>Date:</b> {receipt.get('receipt_date', '')}", right)],
+        [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", normal),
+         Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right)],
+    ]
+    mt = Table(meta, colWidths=[95*mm, 80*mm])
+    mt.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+    elements.append(mt)
+    elements.append(Spacer(1, 4*mm))
+
+    elements.append(Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", bold))
+    elements.append(Spacer(1, 3*mm))
+
+    # DESCRIPTION | QTY | AMOUNT lines (same style as invoice)
+    lines = []
+    raw = str(receipt.get("description") or "").strip()
+    total = float(receipt.get("amount") or 0)
+    if raw:
+        for line in raw.split("\n"):
+            line = line.strip()
+            if not line or line.lower() in ("null", "none"):
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 3:
+                desc, qty, amt = parts[0], parts[1], parts[2]
+                try:
+                    amt_f = float(str(amt).replace(",", "").replace("M", "").strip() or 0)
+                except Exception:
+                    amt_f = 0.0
+                lines.append([desc, qty, f"M {amt_f:,.2f}"])
+            else:
+                lines.append([line, "", ""])
+    if not lines:
+        lines.append([raw or "Transport services", "1", f"M {total:,.2f}"])
+
+    data = [[Paragraph("<b>DESCRIPTION</b>", bold),
+             Paragraph("<b>QTY</b>", bold),
+             Paragraph("<b>AMOUNT</b>", bold)]] + [
+        [Paragraph(str(r[0]), normal), Paragraph(str(r[1]), normal), Paragraph(str(r[2]), right)]
+        for r in lines
+    ]
+    data.append(["", Paragraph("<b>TOTAL RECEIVED</b>", bold),
+                 Paragraph(f"<b>M {total:,.2f}</b>", right)])
+
+    tbl = Table(data, colWidths=[110*mm, 25*mm, 40*mm])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fff8e6")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, colors.HexColor("#f5a623")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.HexColor("#f5a623")),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    elements.append(tbl)
+    elements.append(Spacer(1, 8*mm))
+
+    elements.append(Paragraph("<b>Banking details</b>", bold))
+    elements.append(Paragraph("Postbank · Acc no 1017866800015 · Branch code 500100", normal))
+    elements.append(Spacer(1, 6*mm))
+    elements.append(Paragraph("Thank you for your Business", ParagraphStyle(
+        "Thanks", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
+    )))
+
+    def _footer(canvas, doc_):
+        canvas.saveState()
+        page_w, _ = A4
+        canvas.setStrokeColor(colors.HexColor("#f5a623"))
+        canvas.setLineWidth(1.2)
+        canvas.line(12*mm, 12*mm, page_w - 12*mm, 12*mm)
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(colors.HexColor("#666666"))
+        canvas.drawCentredString(page_w/2, 6*mm, "Maxy Taxi Transport · Maseru · Official receipt")
+        canvas.restoreState()
+
+    doc.build(elements, onFirstPage=_footer, onLaterPages=_footer)
     buffer.seek(0)
     return buffer
 
@@ -2872,6 +3013,135 @@ def page_night_duty():
             st.caption("No Night duty records for this week yet.")
 
 
+def page_receipts():
+    st.header("Receipts")
+    st.caption("Official payment receipts · PDF ready to print or share")
+
+    ensure_extra_tables()
+
+    with st.expander("Create receipt", expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            received_from = st.text_input("Received from *", placeholder="Client / company / passenger name", key="rc_from")
+            rdate = st.date_input("Receipt date", value=date.today(), key="rc_date")
+        with c2:
+            pay_method = st.selectbox(
+                "Payment method",
+                ["Cash", "Bank transfer", "Mobile money", "Cheque", "Other"],
+                key="rc_pay",
+            )
+            # Optional link to unpaid / any invoice
+            invs = query_df("SELECT invoice_number, client_name, amount FROM invoices ORDER BY id DESC LIMIT 40")
+            inv_opts = ["— None —"] + (
+                [f"{r['invoice_number']} · {r['client_name']} · {money(r['amount'])}" for _, r in invs.iterrows()]
+                if not invs.empty else []
+            )
+            related = st.selectbox("Related invoice (optional)", inv_opts, key="rc_inv")
+
+        st.markdown("""
+        <div style="background:#1a1a1a; border:1px solid #f5a62355; border-radius:10px; padding:10px 12px; margin:10px 0 6px 0;">
+            <p style="color:#f5a623; font-weight:700; margin:0; letter-spacing:1px; font-size:13px;">
+                DESCRIPTION &nbsp;&nbsp;|&nbsp;&nbsp; QTY &nbsp;&nbsp;|&nbsp;&nbsp; AMOUNT (M)
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        _rc_seed = pd.DataFrame({
+            "DESCRIPTION": ["", "", ""],
+            "QTY": [None, None, None],
+            "AMOUNT (M)": [None, None, None],
+        })
+        edited_rc = st.data_editor(
+            _rc_seed,
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            key="rc_line_editor",
+            column_config={
+                "DESCRIPTION": st.column_config.TextColumn("DESCRIPTION", width="large"),
+                "QTY": st.column_config.NumberColumn("QTY", min_value=0, step=1, format="%d"),
+                "AMOUNT (M)": st.column_config.NumberColumn("AMOUNT (M)", min_value=0.0, step=50.0, format="%.2f"),
+            },
+        )
+        try:
+            rc_total = float(pd.to_numeric(edited_rc["AMOUNT (M)"], errors="coerce").fillna(0).sum())
+        except Exception:
+            rc_total = 0.0
+        st.metric("Total received", money(rc_total))
+        notes = st.text_input("Notes (optional)", key="rc_notes")
+
+        if st.button("Create receipt", type="primary", use_container_width=True):
+            if not received_from.strip():
+                st.error("Received from is required.")
+            elif rc_total <= 0:
+                st.error("Enter at least one amount in the table.")
+            else:
+                lines = []
+                for _, r in edited_rc.iterrows():
+                    desc = str(r.get("DESCRIPTION") or "").strip()
+                    if not desc or desc.lower() in ("null", "none", "nan"):
+                        continue
+                    qty = r.get("QTY")
+                    amt = r.get("AMOUNT (M)")
+                    if pd.isna(amt) and pd.isna(qty):
+                        continue
+                    qty_s = "" if pd.isna(qty) else str(int(qty))
+                    amt_s = "0" if pd.isna(amt) else str(float(amt))
+                    lines.append(f"{desc} | {qty_s} | {amt_s}")
+                description = "\n".join(lines) if lines else "Transport services"
+                year = date.today().year
+                last = query_df(
+                    "SELECT receipt_number FROM receipts WHERE receipt_number LIKE ? ORDER BY id DESC LIMIT 1",
+                    (f"RCT-{year}-%",),
+                )
+                if last.empty:
+                    num = 1
+                else:
+                    try:
+                        num = int(str(last.iloc[0]["receipt_number"]).split("-")[-1]) + 1
+                    except Exception:
+                        num = 1
+                rct_no = f"RCT-{year}-{num:04d}"
+                rel_inv = ""
+                if related and related != "— None —":
+                    rel_inv = related.split("·")[0].strip()
+                execute(
+                    """INSERT INTO receipts
+                       (receipt_number, receipt_date, received_from, description, amount, payment_method, related_invoice, notes)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (rct_no, rdate.isoformat(), received_from.strip(), description, rc_total,
+                     pay_method, rel_inv, notes or ""),
+                )
+                if "rc_line_editor" in st.session_state:
+                    del st.session_state["rc_line_editor"]
+                st.success(f"Receipt {rct_no} created!")
+                st.rerun()
+
+    st.subheader("All receipts")
+    rdf = query_df(
+        "SELECT id, receipt_number, receipt_date, received_from, amount, payment_method, related_invoice "
+        "FROM receipts ORDER BY id DESC"
+    )
+    if rdf.empty:
+        st.info("No receipts yet.")
+    else:
+        st.dataframe(rdf, use_container_width=True, hide_index=True)
+        nums = rdf["receipt_number"].tolist()
+        selected = st.selectbox("Download PDF", nums, key="rc_pdf_sel")
+        if st.button("Generate receipt PDF", type="primary", use_container_width=True):
+            row = query_df("SELECT * FROM receipts WHERE receipt_number = ?", (selected,))
+            if not row.empty:
+                rec = row.iloc[0].to_dict()
+                pdf = generate_receipt_pdf(rec)
+                st.download_button(
+                    f"Download {selected}.pdf",
+                    pdf.getvalue(),
+                    f"{selected}.pdf",
+                    "application/pdf",
+                    use_container_width=True,
+                )
+
+
 def page_export():
     st.header("Backup & Export")
 
@@ -3111,6 +3381,7 @@ def main():
         "Monthly Expenses": page_monthly_expenses,
         "Quotations": page_quotations,
         "Invoices": page_invoices,
+        "Receipts": page_receipts,
         "Backup / Export": page_export,
     }
 
