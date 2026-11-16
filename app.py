@@ -987,46 +987,28 @@ def generate_invoice_pdf(invoice, client=None):
     ])
 
     items_table = Table(items_data, colWidths=[105*mm, 28*mm, 47*mm])
-    items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5a623")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
-        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-        ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 7),
-        ('TOPPADDING', (0, 0), (-1, 0), 7),
-        ('BACKGROUND', (0, 1), (-1, -2), colors.white),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.white),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 1), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
-        # No grid lines — clean professional look
-    ]))
+    items_table.setStyle(_pdf_line_table_style())
     elements.append(items_table)
-    elements.append(Spacer(1, 5*mm))
+    elements.append(Spacer(1, 6*mm))
 
-    # Banking details
-    elements.append(Paragraph("<b>BANKING DETAILS</b>", heading))
-    bank_style = ParagraphStyle('Bank', parent=normal, fontSize=9, leading=12)
-    elements.append(Paragraph("<b>Bank:</b> Postbank &nbsp;&nbsp; <b>Account No:</b> 1017866800015 &nbsp;&nbsp; <b>Branch:</b> 500100", bank_style))
-    elements.append(Paragraph("<b>Account Name:</b> Maxy Taxi Transport", bank_style))
+    elements.append(_pdf_banking_box(normal))
+    elements.append(Spacer(1, 6*mm))
+    elements.append(Paragraph(
+        "Thank you for your Business",
+        ParagraphStyle("ThanksInv", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER,
+                       textColor=colors.HexColor("#1a1a1a")),
+    ))
 
-    # Footer fixed at the very bottom of every page
     def _draw_inv_footer(canvas, doc_):
         _pdf_draw_watermark(canvas, doc_)
         canvas.saveState()
         page_w, _ = A4
         canvas.setStrokeColor(colors.HexColor("#f5a623"))
-        canvas.setLineWidth(0.8)
-        canvas.line(12*mm, 16*mm, page_w - 12*mm, 16*mm)
-        canvas.setFont('Helvetica-Bold', 10)
-        canvas.setFillColor(colors.HexColor("#1a1a1a"))
-        canvas.drawCentredString(page_w/2, 10*mm, "Thank you for your Business")
-        canvas.setFont('Helvetica', 8)
+        canvas.setLineWidth(1.5)
+        canvas.line(15*mm, 14*mm, page_w - 15*mm, 14*mm)
+        canvas.setFont("Helvetica", 8.5)
         canvas.setFillColor(colors.HexColor("#555555"))
-        canvas.drawCentredString(page_w/2, 5.5*mm, "SAFE  •  QUICK  •  RELIABLE")
+        canvas.drawCentredString(page_w/2, 8*mm, "Maxi Taxi Transport - Maseru - Invoice")
         canvas.restoreState()
 
     doc.build(elements, onFirstPage=_draw_inv_footer, onLaterPages=_draw_inv_footer)
@@ -1142,44 +1124,31 @@ def generate_quotation_pdf(quote, client=None):
     ])
 
     items_table = Table(items_data, colWidths=[105*mm, 28*mm, 47*mm])
-    items_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f5a623")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
-        ('ALIGN', (1, 0), (1, -1), 'CENTER'),
-        ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 7),
-        ('TOPPADDING', (0, 0), (-1, 0), 7),
-        ('BACKGROUND', (0, 1), (-1, -2), colors.white),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.white),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 1), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 5),
-        # No grid lines — clean professional look
-    ]))
+    items_table.setStyle(_pdf_line_table_style())
     elements.append(items_table)
-    elements.append(Spacer(1, 5*mm))
+    elements.append(Spacer(1, 6*mm))
 
-    if quote.get('notes'):
+    if quote.get("notes"):
         elements.append(Paragraph("<b>Notes / Terms</b>", heading))
-        elements.append(Paragraph(quote['notes'], normal))
+        elements.append(Paragraph(quote["notes"], normal))
+        elements.append(Spacer(1, 4*mm))
 
-    # Footer fixed at the very bottom of every page (never mid-page)
+    elements.append(Paragraph(
+        "Thank you for considering Maxy Taxi Transport.",
+        ParagraphStyle("ThanksQ", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER,
+                       textColor=colors.HexColor("#1a1a1a")),
+    ))
+
     def _draw_quote_footer(canvas, doc_):
         _pdf_draw_watermark(canvas, doc_)
         canvas.saveState()
         page_w, _ = A4
-        # Soft gold line above footer
         canvas.setStrokeColor(colors.HexColor("#f5a623"))
-        canvas.setLineWidth(0.8)
-        canvas.line(12*mm, 16*mm, page_w - 12*mm, 16*mm)
-        canvas.setFont('Helvetica', 8)
+        canvas.setLineWidth(1.5)
+        canvas.line(15*mm, 14*mm, page_w - 15*mm, 14*mm)
+        canvas.setFont("Helvetica", 8.5)
         canvas.setFillColor(colors.HexColor("#555555"))
-        canvas.setFont('Helvetica-Bold', 10)
-        canvas.setFillColor(colors.HexColor("#1a1a1a"))
-        canvas.drawCentredString(page_w/2, 8*mm, "Thank you for considering Maxy Taxi Transport.")
+        canvas.drawCentredString(page_w/2, 8*mm, "Maxi Taxi Transport - Maseru - Quotation")
         canvas.restoreState()
 
     doc.build(elements, onFirstPage=_draw_quote_footer, onLaterPages=_draw_quote_footer)
@@ -1187,33 +1156,69 @@ def generate_quotation_pdf(quote, client=None):
     return buffer
 
 
+def _pdf_line_table_style():
+    """Shared professional table style for invoice / quote / receipt."""
+    return TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fff8e6")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
+        ("LINEBELOW", (0, 0), (-1, 0), 1.2, colors.HexColor("#f5a623")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#cccccc")),
+        ("LINEBELOW", (0, 1), (-1, -2), 0.5, colors.HexColor("#e0e0e0")),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fafafa")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.0, colors.HexColor("#f5a623")),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ])
+
+
+def _pdf_banking_box(normal):
+    bank_box = Table(
+        [[Paragraph(
+            "<b>Banking details</b><br/>"
+            "Postbank &bull; Acc no 1017866800015 &bull; Branch code 500100<br/>"
+            "Account Name: Maxy Taxi Transport",
+            normal,
+        )]],
+        colWidths=[180*mm],
+    )
+    bank_box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9f9f9")),
+        ("LINEBEFORE", (0, 0), (0, -1), 3, colors.HexColor("#f5a623")),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e0e0e0")),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    return bank_box
+
+
 def generate_receipt_pdf(receipt):
-    """Branded payment receipt PDF."""
+    """Upgraded branded payment receipt PDF matching Maxy Taxi style."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
-        rightMargin=12*mm, leftMargin=12*mm,
-        topMargin=5*mm, bottomMargin=20*mm,
+        rightMargin=15*mm, leftMargin=15*mm,
+        topMargin=8*mm, bottomMargin=20*mm,
     )
     styles = getSampleStyleSheet()
     elements = []
-    title_style = ParagraphStyle(
-        "Title", parent=styles["Heading1"], fontSize=16, alignment=TA_CENTER,
-        textColor=colors.HexColor("#1a1a1a"),
-    )
-    subtitle = ParagraphStyle(
-        "Subtitle", parent=styles["Normal"], fontSize=8, alignment=TA_CENTER,
-        textColor=colors.HexColor("#555555"),
-    )
-    normal = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=10, leading=13)
-    right = ParagraphStyle("Right", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT)
-    bold = ParagraphStyle("Bold", parent=styles["Normal"], fontSize=10, leading=13)
+
+    normal = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=10, leading=14)
+    right = ParagraphStyle("Right", parent=styles["Normal"], fontSize=10, leading=14, alignment=TA_RIGHT)
+    bold = ParagraphStyle("Bold", parent=styles["Normal"], fontSize=10, leading=14)
+    bold_right = ParagraphStyle("BoldRight", parent=styles["Normal"], fontSize=10, leading=14, alignment=TA_RIGHT)
 
     elements.extend(_pdf_letterhead_elements(styles))
+    elements.append(Spacer(1, 2*mm))
+
     elements.append(Paragraph(
-        "RECEIPT",
+        "<b>RECEIPT</b>",
         ParagraphStyle("RTitle", parent=styles["Heading1"], fontSize=14, alignment=TA_CENTER,
-                       textColor=colors.HexColor("#1a1a1a"), spaceAfter=3*mm),
+                       textColor=colors.HexColor("#1a1a1a"), spaceAfter=5*mm),
     ))
 
     meta = [
@@ -1222,15 +1227,19 @@ def generate_receipt_pdf(receipt):
         [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", normal),
          Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right)],
     ]
-    mt = Table(meta, colWidths=[95*mm, 80*mm])
-    mt.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+    mt = Table(meta, colWidths=[100*mm, 80*mm])
+    mt.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
     elements.append(mt)
     elements.append(Spacer(1, 4*mm))
 
-    elements.append(Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", bold))
-    elements.append(Spacer(1, 3*mm))
+    elements.append(Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", normal))
+    elements.append(Spacer(1, 4*mm))
 
-    # DESCRIPTION | QTY | AMOUNT lines (same style as invoice)
     lines = []
     raw = str(receipt.get("description") or "").strip()
     total = float(receipt.get("amount") or 0)
@@ -1252,33 +1261,34 @@ def generate_receipt_pdf(receipt):
     if not lines:
         lines.append([raw or "Transport services", "1", f"M {total:,.2f}"])
 
-    data = [[Paragraph("<b>DESCRIPTION</b>", bold),
-             Paragraph("<b>QTY</b>", bold),
-             Paragraph("<b>AMOUNT</b>", bold)]] + [
-        [Paragraph(str(r[0]), normal), Paragraph(str(r[1]), normal), Paragraph(str(r[2]), right)]
-        for r in lines
-    ]
-    data.append(["", Paragraph("<b>TOTAL RECEIVED</b>", bold),
-                 Paragraph(f"<b>M {total:,.2f}</b>", right)])
+    data = [[
+        Paragraph("<b>DESCRIPTION</b>", bold),
+        Paragraph("<b>QTY</b>", bold),
+        Paragraph("<b>AMOUNT</b>", bold_right),
+    ]]
+    for r in lines:
+        data.append([
+            Paragraph(str(r[0]), normal),
+            Paragraph(str(r[1]), normal),
+            Paragraph(str(r[2]), right),
+        ])
+    data.append([
+        "",
+        Paragraph("<b>TOTAL RECEIVED</b>", bold),
+        Paragraph(f"<b>M {total:,.2f}</b>", bold_right),
+    ])
 
-    tbl = Table(data, colWidths=[110*mm, 25*mm, 40*mm])
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fff8e6")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
-        ("LINEBELOW", (0, 0), (-1, 0), 1, colors.HexColor("#f5a623")),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.HexColor("#f5a623")),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
+    tbl = Table(data, colWidths=[100*mm, 38*mm, 42*mm])
+    tbl.setStyle(_pdf_line_table_style())
     elements.append(tbl)
     elements.append(Spacer(1, 8*mm))
 
-    elements.append(Paragraph("<b>Banking details</b>", bold))
-    elements.append(Paragraph("Postbank · Acc no 1017866800015 · Branch code 500100", normal))
-    elements.append(Spacer(1, 6*mm))
+    elements.append(_pdf_banking_box(normal))
+    elements.append(Spacer(1, 10*mm))
+
     elements.append(Paragraph("Thank you for your Business", ParagraphStyle(
-        "Thanks", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER, textColor=colors.HexColor("#1a1a1a"),
+        "Thanks", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER,
+        textColor=colors.HexColor("#1a1a1a"),
     )))
 
     def _footer(canvas, doc_):
@@ -1286,11 +1296,11 @@ def generate_receipt_pdf(receipt):
         canvas.saveState()
         page_w, _ = A4
         canvas.setStrokeColor(colors.HexColor("#f5a623"))
-        canvas.setLineWidth(1.2)
-        canvas.line(12*mm, 12*mm, page_w - 12*mm, 12*mm)
-        canvas.setFont("Helvetica", 8)
-        canvas.setFillColor(colors.HexColor("#666666"))
-        canvas.drawCentredString(page_w/2, 6*mm, "Maxy Taxi Transport · Maseru · Official receipt")
+        canvas.setLineWidth(1.5)
+        canvas.line(15*mm, 14*mm, page_w - 15*mm, 14*mm)
+        canvas.setFont("Helvetica", 8.5)
+        canvas.setFillColor(colors.HexColor("#555555"))
+        canvas.drawCentredString(page_w/2, 8*mm, "Maxi Taxi Transport - Maseru - Official Receipt")
         canvas.restoreState()
 
     doc.build(elements, onFirstPage=_footer, onLaterPages=_footer)
