@@ -780,12 +780,12 @@ def create_pdf_buffer():
     return buffer
 
 def _pdf_letterhead_elements(styles=None):
-    """Official Maxi Taxi letterhead image + gold line only (no black borders)."""
+    """Official Maxi Taxi letterhead — gold line only, no black bars."""
     elements = []
     base = os.path.dirname(__file__)
     for name, w, h in (
-        ("letterhead_header.png", 186*mm, 42*mm),
-        ("letterhead_clean.jpg", 186*mm, 40*mm),
+        ("letterhead_header.png", 186*mm, 40*mm),
+        ("letterhead_clean.jpg", 186*mm, 38*mm),
         ("letterhead_banner.jpg", 186*mm, 36*mm),
     ):
         path = os.path.join(base, name)
@@ -802,7 +802,7 @@ def _pdf_letterhead_elements(styles=None):
         ))
     elements.append(HRFlowable(
         width="100%", thickness=1.5, color=colors.HexColor("#f5a623"),
-        spaceBefore=1*mm, spaceAfter=4*mm,
+        spaceBefore=2*mm, spaceAfter=4*mm,
     ))
     return elements
 
@@ -820,7 +820,7 @@ def _pdf_draw_watermark(canvas, doc=None):
     if path:
         try:
             page_w, page_h = A4
-            w, h = 130*mm, 100*mm
+            w, h = 145*mm, 110*mm
             x = (page_w - w) / 2.0
             y = page_h / 2.0 - h / 2.0 - 5*mm
             canvas.drawImage(
@@ -1731,12 +1731,6 @@ def page_daily_entry():
         with c5:
             cln_s = st.text_input("LNLVIP", value="", placeholder="0")
 
-        e1, e2 = st.columns(2)
-        with e1:
-            other_s = st.text_input("Other expenses (M)", value="", placeholder="Amount")
-        with e2:
-            exp_notes = st.text_input("Expense notes", value="")
-
         submitted = st.form_submit_button("Save Record", use_container_width=True, type="primary")
 
         if submitted:
@@ -1767,7 +1761,6 @@ def page_daily_entry():
                 credit_worldvision = parse_amount(cw_s)
                 credit_waleslink = parse_amount(cwa_s)
                 credit_lnlvip = parse_amount(cln_s)
-                other_exp = parse_amount(other_s)
 
                 execute("""
                     INSERT INTO daily_records 
@@ -1778,7 +1771,7 @@ def page_daily_entry():
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     record_date.isoformat(), vehicle['id'], vehicle['name'], vehicle['plate'],
-                    cash, fuel_cost, fuel_topup, trips, other_exp, exp_notes, driver_comp, airtime, duty,
+                    cash, fuel_cost, fuel_topup, trips, 0.0, "", driver_comp, airtime, duty,
                     credit_alliance, credit_lehae, credit_worldvision, credit_waleslink, credit_lnlvip,
                     driver, duty
                 ))
@@ -2440,18 +2433,27 @@ def page_monthly_expenses():
         month_labels = [label for _, _, label in FY_MONTHS]
         sel_month = st.selectbox("Month", month_labels, key="me_month")
 
+        # Ensure stationery column exists
+        try:
+            execute("ALTER TABLE monthly_expenses ADD COLUMN stationery DOUBLE PRECISION DEFAULT 0")
+        except Exception:
+            try:
+                execute("ALTER TABLE monthly_expenses ADD COLUMN stationery REAL DEFAULT 0")
+            except Exception:
+                pass
+
         existing = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (sel_month,))
         if not existing.empty:
             row = existing.iloc[0]
             rent0 = float(row.get("rent") or 0)
             wifi0 = float(row.get("wifi") or 0)
-            maint0 = float(row.get("maintenance") or 0)
             sal0 = float(row.get("salaries") or 0)
             wash0 = float(row.get("car_wash") or 0)
+            stat0 = float(row.get("stationery") or 0)
             misc0 = float(row.get("miscellaneous") or 0)
             notes0 = str(row.get("notes") or "")
         else:
-            rent0 = wifi0 = maint0 = sal0 = wash0 = misc0 = 0.0
+            rent0 = wifi0 = sal0 = wash0 = stat0 = misc0 = 0.0
             notes0 = ""
 
         df = prepare_records_df()
@@ -2466,20 +2468,20 @@ def page_monthly_expenses():
             rent_s = st.text_input("Rent (M)", value=format_amount(rent0) if rent0 else "", placeholder="0.00")
             wifi_s = st.text_input("WiFi (M)", value=format_amount(wifi0) if wifi0 else "", placeholder="0.00")
         with c2:
-            maint_s = st.text_input("Maintenance (M)", value=format_amount(maint0) if maint0 else "", placeholder="0.00")
             sal_s = st.text_input("Monthly salaries (M)", value=format_amount(sal0) if sal0 else "", placeholder="0.00")
-        with c3:
             wash_s = st.text_input("Car wash (M)", value=format_amount(wash0) if wash0 else "", placeholder="0.00")
+        with c3:
+            stat_s = st.text_input("Stationery (M)", value=format_amount(stat0) if stat0 else "", placeholder="0.00")
             misc_s = st.text_input("Miscellaneous (M)", value=format_amount(misc0) if misc0 else "", placeholder="0.00")
         notes = st.text_input("Notes", value=notes0)
 
         rent = parse_amount(rent_s)
         wifi = parse_amount(wifi_s)
-        maint = parse_amount(maint_s)
         salaries = parse_amount(sal_s)
         car_wash = parse_amount(wash_s)
+        stationery = parse_amount(stat_s)
         miscellaneous = parse_amount(misc_s)
-        fixed_total = rent + wifi + maint + salaries + car_wash + miscellaneous
+        fixed_total = rent + wifi + salaries + car_wash + stationery + miscellaneous
         staff_total = driver_comp_total + salaries
 
         m1, m2, m3 = st.columns(3)
@@ -2490,19 +2492,19 @@ def page_monthly_expenses():
         if st.button("Save fixed costs", type="primary", use_container_width=True):
             if not existing.empty:
                 execute(
-                    "UPDATE monthly_expenses SET rent=?, wifi=?, maintenance=?, salaries=?, car_wash=?, miscellaneous=?, notes=? WHERE expense_month=?",
-                    (rent, wifi, maint, salaries, car_wash, miscellaneous, notes, sel_month),
+                    "UPDATE monthly_expenses SET rent=?, wifi=?, salaries=?, car_wash=?, stationery=?, miscellaneous=?, notes=?, maintenance=0 WHERE expense_month=?",
+                    (rent, wifi, salaries, car_wash, stationery, miscellaneous, notes, sel_month),
                 )
             else:
                 execute(
-                    "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?)",
-                    (sel_month, rent, wifi, maint, salaries, car_wash, miscellaneous, notes),
+                    "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, stationery, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (sel_month, rent, wifi, 0, salaries, car_wash, stationery, miscellaneous, notes),
                 )
             st.success(f"Saved fixed costs for {sel_month}")
             st.rerun()
 
         all_me = query_df(
-            "SELECT expense_month, rent, wifi, maintenance, salaries, car_wash, miscellaneous "
+            "SELECT expense_month, rent, wifi, salaries, car_wash, stationery, miscellaneous "
             "FROM monthly_expenses ORDER BY expense_month"
         )
         if not all_me.empty:
@@ -2540,19 +2542,27 @@ def page_monthly_expenses():
             st.info("Incidents table ready — save your first entry.")
 
     with tab_parts:
-        st.markdown("**Tyres, battery, brakes and workshop jobs**")
+        st.markdown("**Parts, workshop & mechanical**")
+        veh_opts = [v["name"] for v in VEHICLES] + ["Various (all fleet)"]
         with st.form("parts_form"):
             c1, c2 = st.columns(2)
             with c1:
                 d = st.date_input("Date", value=date.today(), key="parts_date")
-                veh = st.selectbox("Vehicle", [v["name"] for v in VEHICLES], key="parts_veh")
+                veh = st.selectbox("Vehicle", veh_opts, key="parts_veh")
             with c2:
-                item = st.text_input("Item (tyre, battery, brakes…)", key="parts_item")
+                item = st.selectbox(
+                    "Item / type",
+                    ["Tyre", "Battery", "Brakes", "Oil / service", "Mechanical fee", "Body / panel", "Electrical", "Other"],
+                    key="parts_item",
+                )
                 amt_s = st.text_input("Amount (M)", value="", placeholder="0.00", key="parts_amt")
             notes_p = st.text_input("Notes", key="parts_notes")
             if st.form_submit_button("Save parts / workshop", type="primary"):
                 ensure_extra_tables()
-                plate = next((v["plate"] for v in VEHICLES if v["name"] == veh), "")
+                if veh == "Various (all fleet)":
+                    plate = "VARIOUS"
+                else:
+                    plate = next((v["plate"] for v in VEHICLES if v["name"] == veh), "")
                 execute(
                     "INSERT INTO parts_workshop (entry_date, vehicle_name, plate, item, amount, notes) VALUES (?,?,?,?,?,?)",
                     (d.isoformat(), veh, plate, item, parse_amount(amt_s), notes_p),
@@ -2560,15 +2570,64 @@ def page_monthly_expenses():
                 st.success("Parts / workshop saved")
                 st.rerun()
         try:
-            pdf = query_df("SELECT entry_date, vehicle_name, item, amount, notes FROM parts_workshop ORDER BY id DESC LIMIT 50")
+            pdf = query_df(
+                "SELECT id, entry_date, vehicle_name, plate, item, amount, notes FROM parts_workshop ORDER BY id DESC LIMIT 80"
+            )
             if pdf.empty:
                 st.info("No parts / workshop entries yet.")
             else:
-                st.dataframe(pdf, use_container_width=True, hide_index=True)
+                st.dataframe(pdf.drop(columns=["id"], errors="ignore"), use_container_width=True, hide_index=True)
                 st.metric("Total parts (listed)", money(pd.to_numeric(pdf["amount"], errors="coerce").fillna(0).sum()))
-        except Exception:
+
+                st.markdown("**Edit or delete a record**")
+                ids = pdf["id"].tolist()
+                labels = [
+                    f"#{int(r['id'])} · {r['entry_date']} · {r['vehicle_name']} · {r['item']} · {money(r['amount'])}"
+                    for _, r in pdf.iterrows()
+                ]
+                pick = st.selectbox("Select record", range(len(ids)), format_func=lambda i: labels[i], key="parts_edit_sel")
+                row = pdf.iloc[pick]
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    e_date = st.date_input("Edit date", value=date.fromisoformat(str(row["entry_date"])[:10]), key="parts_ed")
+                    e_veh = st.selectbox(
+                        "Edit vehicle",
+                        veh_opts,
+                        index=veh_opts.index(row["vehicle_name"]) if row["vehicle_name"] in veh_opts else 0,
+                        key="parts_ev",
+                    )
+                with ec2:
+                    item_list = ["Tyre", "Battery", "Brakes", "Oil / service", "Mechanical fee", "Body / panel", "Electrical", "Other"]
+                    cur_item = str(row.get("item") or "Other")
+                    e_item = st.selectbox(
+                        "Edit item",
+                        item_list,
+                        index=item_list.index(cur_item) if cur_item in item_list else item_list.index("Other"),
+                        key="parts_ei",
+                    )
+                    e_amt = st.text_input("Edit amount (M)", value=format_amount(float(row.get("amount") or 0)), key="parts_ea")
+                e_notes = st.text_input("Edit notes", value=str(row.get("notes") or ""), key="parts_en")
+                b1, b2 = st.columns(2)
+                with b1:
+                    if st.button("Save edits", type="primary", use_container_width=True, key="parts_save_edit"):
+                        plate = "VARIOUS" if e_veh == "Various (all fleet)" else next(
+                            (v["plate"] for v in VEHICLES if v["name"] == e_veh), ""
+                        )
+                        execute(
+                            "UPDATE parts_workshop SET entry_date=?, vehicle_name=?, plate=?, item=?, amount=?, notes=? WHERE id=?",
+                            (e_date.isoformat(), e_veh, plate, e_item, parse_amount(e_amt), e_notes, int(row["id"])),
+                        )
+                        st.success("Updated")
+                        st.rerun()
+                with b2:
+                    if st.button("Delete record", use_container_width=True, key="parts_del"):
+                        execute("DELETE FROM parts_workshop WHERE id=?", (int(row["id"]),))
+                        st.success("Deleted")
+                        st.rerun()
+        except Exception as e:
             ensure_extra_tables()
             st.info("Parts table ready — save your first entry.")
+            st.caption(str(e))
 
 
 def _week_bounds(ref_date=None):
