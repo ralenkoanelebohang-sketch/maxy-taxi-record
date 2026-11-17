@@ -347,7 +347,7 @@ BUSINESS_LOCATION = "Puma House 12 United Nations Road, Maseru"
 BUSINESS_PHONE = "+266 27333388 / 68335933"
 BUSINESS_WHATSAPP = "+266 56432571"
 BUSINESS_EMAIL = "maxytaxicab@gmail.com"
-BUSINESS_TIN = ""            # Add your TIN later if needed
+BUSINESS_TIN = "200062844-2"
 CURRENCY = "M"
 
 # Monthly credit clients
@@ -808,21 +808,18 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Large centre pin/car watermark (brand mark)."""
+    """Clean pin/car watermark only (extracted logo mark — not a full scan)."""
     canvas.saveState()
     base = os.path.dirname(__file__)
-    path = None
-    for name in ("watermark_taxi.png", "logo_transparent.png", "logo_clean.png"):
-        p = os.path.join(base, name)
-        if os.path.exists(p):
-            path = p
-            break
-    if path:
+    path = os.path.join(base, "watermark_taxi.png")
+    if not os.path.exists(path):
+        path = os.path.join(base, "logo_clean.png")
+    if os.path.exists(path):
         try:
             page_w, page_h = A4
-            w, h = 150*mm, 200*mm
+            w, h = 95*mm, 110*mm
             x = (page_w - w) / 2.0
-            y = (page_h - h) / 2.0 - 8*mm
+            y = (page_h - h) / 2.0 - 5*mm
             canvas.drawImage(
                 path, x, y, width=w, height=h,
                 mask="auto", preserveAspectRatio=True,
@@ -951,9 +948,11 @@ def generate_invoice_pdf(invoice, client=None):
                 Paragraph("", right),
             ])
 
-    # Spacing rows only if there is content
-    for _ in range(2):
-        items_data.append([Paragraph("<br/>", normal), Paragraph("", normal), Paragraph("", right)])
+    # Pad body to about 5 lines (no grid lines) — extra rows if user enters more
+    body_rows = max(0, len(items_data) - 1)  # exclude header
+    while body_rows < 5:
+        items_data.append([Paragraph("&nbsp;", normal), Paragraph("", normal), Paragraph("", right)])
+        body_rows += 1
 
     total_amount = parsed_total if has_breakdown and parsed_total > 0 else amount
     items_data.append([
@@ -1071,8 +1070,10 @@ def generate_quotation_pdf(quote, client=None):
         else:
             items_data.append([Paragraph(ln, normal), Paragraph("", normal), Paragraph("", right)])
 
-    for _ in range(3):
-        items_data.append([Paragraph("<br/>", normal), Paragraph("", normal), Paragraph("", right)])
+    body_rows = max(0, len(items_data) - 1)
+    while body_rows < 5:
+        items_data.append([Paragraph("&nbsp;", normal), Paragraph("", normal), Paragraph("", right)])
+        body_rows += 1
 
     total_amount = parsed_total if has_breakdown and parsed_total > 0 else amount
     items_data.append([
@@ -1084,7 +1085,6 @@ def generate_quotation_pdf(quote, client=None):
     items_table = Table(items_data, colWidths=[105*mm, 28*mm, 47*mm])
     items_table.setStyle(_pdf_line_table_style())
     elements.append(items_table)
-    elements.append(Spacer(1, 6*mm))
 
     if quote.get("notes"):
         elements.append(Paragraph("<b>Notes / Terms</b>", heading))
@@ -1099,7 +1099,7 @@ def generate_quotation_pdf(quote, client=None):
 
 
 def _pdf_line_table_style():
-    """Gold header, light-blue accents, line above TOTAL with bordered total cells."""
+    """Gold header, ~5-line body feel, no grid lines; soft total row only."""
     return TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f5a623")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
@@ -1107,16 +1107,17 @@ def _pdf_line_table_style():
         ("ALIGN", (1, 0), (1, -1), "CENTER"),
         ("ALIGN", (2, 0), (2, -1), "RIGHT"),
         ("BACKGROUND", (0, 1), (-1, -2), colors.white),
-        # Total row — soft blue tint + border
-        ("BACKGROUND", (1, -1), (-1, -1), colors.HexColor("#e8f4fc")),
-        ("BOX", (1, -1), (-1, -1), 1.0, colors.HexColor("#5dade2")),
-        ("LINEABOVE", (0, -1), (-1, -1), 1.2, colors.HexColor("#f5a623")),
+        ("BACKGROUND", (1, -1), (-1, -1), colors.HexColor("#eef7fc")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.0, colors.HexColor("#f5a623")),
         ("FONTNAME", (1, -1), (-1, -1), "Helvetica-Bold"),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, 0), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+        ("TOPPADDING", (0, 1), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 10),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        # no BOX / no cell grid lines
     ])
 
 
@@ -1132,6 +1133,7 @@ def _pdf_draw_page_chrome(canvas, doc_, footer_label="Maxi Taxi Transport - Mase
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(colors.HexColor("#333333"))
     canvas.drawString(15*mm, 26*mm, "Postbank  ·  Acc no 1017866800015  ·  Branch 500100  ·  Maxy Taxi Transport")
+    canvas.drawString(15*mm, 22.5*mm, f"TIN: {BUSINESS_TIN}")
     # Gold line only
     canvas.setStrokeColor(colors.HexColor("#f5a623"))
     canvas.setLineWidth(1.2)
@@ -1210,6 +1212,8 @@ def generate_receipt_pdf(receipt):
                 lines.append([line, "", ""])
     if not lines:
         lines.append([raw or "Transport services", "1", f"M {total:,.2f}"])
+    while len(lines) < 5:
+        lines.append(["", "", ""])
 
     data = [[
         Paragraph("<b>DESCRIPTION</b>", bold),
@@ -1218,7 +1222,7 @@ def generate_receipt_pdf(receipt):
     ]]
     for r in lines:
         data.append([
-            Paragraph(str(r[0]), normal),
+            Paragraph(str(r[0]) if r[0] else "&nbsp;", normal),
             Paragraph(str(r[1]), normal),
             Paragraph(str(r[2]), right),
         ])
@@ -2206,6 +2210,30 @@ def page_quotations():
                 mime="application/pdf",
                 use_container_width=True
             )
+            st.markdown("### Edit or delete quotation")
+            e_client = st.text_input("Client name", value=str(qrow.get("client_name") or ""), key="q_edit_client")
+            e_amt = st.number_input("Amount", value=float(qrow.get("amount") or 0), min_value=0.0, format="%.2f", key="q_edit_amt")
+            e_status = st.selectbox(
+                "Status",
+                ["Draft", "Sent", "Accepted", "Rejected", "Expired"],
+                index=max(0, ["Draft", "Sent", "Accepted", "Rejected", "Expired"].index(qrow.get("status")) if qrow.get("status") in ["Draft", "Sent", "Accepted", "Rejected", "Expired"] else 0),
+                key="q_edit_status",
+            )
+            e_desc = st.text_area("Description / lines", value=str(qrow.get("description") or ""), key="q_edit_desc")
+            cqe1, cqe2 = st.columns(2)
+            with cqe1:
+                if st.button("Save quotation edits", type="primary", use_container_width=True, key="q_save"):
+                    execute(
+                        "UPDATE quotations SET client_name=?, amount=?, status=?, description=? WHERE quote_number=?",
+                        (e_client, e_amt, e_status, e_desc, selected),
+                    )
+                    st.success("Quotation updated")
+                    st.rerun()
+            with cqe2:
+                if st.button("Delete quotation", use_container_width=True, key="q_del"):
+                    execute("DELETE FROM quotations WHERE quote_number=?", (selected,))
+                    st.success("Quotation deleted")
+                    st.rerun()
 
 def page_invoices():
     st.header("Invoices")
@@ -2343,6 +2371,25 @@ def page_invoices():
                     execute("UPDATE invoices SET amount_paid = ?, status = ? WHERE invoice_number = ?",
                             (new_paid, new_status, selected))
                     st.success("Updated!")
+                    st.rerun()
+
+            st.markdown("### Edit or delete invoice")
+            ie_client = st.text_input("Client name", value=str(irow.get("client_name") or ""), key="i_edit_client")
+            ie_amt = st.number_input("Invoice amount", value=float(irow.get("amount") or 0), min_value=0.0, format="%.2f", key="i_edit_amt")
+            ie_desc = st.text_area("Description / lines", value=str(irow.get("description") or ""), key="i_edit_desc")
+            cie1, cie2 = st.columns(2)
+            with cie1:
+                if st.button("Save invoice edits", type="primary", use_container_width=True, key="i_save"):
+                    execute(
+                        "UPDATE invoices SET client_name=?, amount=?, description=? WHERE invoice_number=?",
+                        (ie_client, ie_amt, ie_desc, selected),
+                    )
+                    st.success("Invoice updated")
+                    st.rerun()
+            with cie2:
+                if st.button("Delete invoice", use_container_width=True, key="i_del"):
+                    execute("DELETE FROM invoices WHERE invoice_number=?", (selected,))
+                    st.success("Invoice deleted")
                     st.rerun()
 
 def _restore_dataframe(df, table_name, skip_cols=None):
@@ -3153,19 +3200,43 @@ def page_receipts():
     else:
         st.dataframe(rdf, use_container_width=True, hide_index=True)
         nums = rdf["receipt_number"].tolist()
-        selected = st.selectbox("Download PDF", nums, key="rc_pdf_sel")
-        if st.button("Generate receipt PDF", type="primary", use_container_width=True):
-            row = query_df("SELECT * FROM receipts WHERE receipt_number = ?", (selected,))
-            if not row.empty:
-                rec = row.iloc[0].to_dict()
-                pdf = generate_receipt_pdf(rec)
-                st.download_button(
-                    f"Download {selected}.pdf",
-                    pdf.getvalue(),
-                    f"{selected}.pdf",
-                    "application/pdf",
-                    use_container_width=True,
-                )
+        selected = st.selectbox("Select receipt", nums, key="rc_pdf_sel")
+        rowdf = query_df("SELECT * FROM receipts WHERE receipt_number = ?", (selected,))
+        if not rowdf.empty:
+            rec = rowdf.iloc[0].to_dict()
+            pdf = generate_receipt_pdf(rec)
+            st.download_button(
+                f"⬇️ Download {selected}.pdf",
+                pdf.getvalue() if hasattr(pdf, "getvalue") else pdf,
+                f"{selected}.pdf",
+                "application/pdf",
+                use_container_width=True,
+                type="primary",
+            )
+            st.markdown("### Edit or delete receipt")
+            re_from = st.text_input("Received from", value=str(rec.get("received_from") or ""), key="r_edit_from")
+            re_amt = st.number_input("Amount", value=float(rec.get("amount") or 0), min_value=0.0, format="%.2f", key="r_edit_amt")
+            re_pay = st.selectbox(
+                "Payment method",
+                ["Cash", "Bank transfer", "Mobile money", "Cheque", "Other"],
+                index=max(0, ["Cash", "Bank transfer", "Mobile money", "Cheque", "Other"].index(rec.get("payment_method")) if rec.get("payment_method") in ["Cash", "Bank transfer", "Mobile money", "Cheque", "Other"] else 0),
+                key="r_edit_pay",
+            )
+            re_desc = st.text_area("Description / lines", value=str(rec.get("description") or ""), key="r_edit_desc")
+            cre1, cre2 = st.columns(2)
+            with cre1:
+                if st.button("Save receipt edits", type="primary", use_container_width=True, key="r_save"):
+                    execute(
+                        "UPDATE receipts SET received_from=?, amount=?, payment_method=?, description=? WHERE receipt_number=?",
+                        (re_from, re_amt, re_pay, re_desc, selected),
+                    )
+                    st.success("Receipt updated")
+                    st.rerun()
+            with cre2:
+                if st.button("Delete receipt", use_container_width=True, key="r_del"):
+                    execute("DELETE FROM receipts WHERE receipt_number=?", (selected,))
+                    st.success("Receipt deleted")
+                    st.rerun()
 
 
 def page_export():
