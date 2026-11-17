@@ -808,7 +808,7 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Light centre watermark using pre-faded PNG (visible on white paper)."""
+    """Large centre pin/car watermark (brand mark)."""
     canvas.saveState()
     base = os.path.dirname(__file__)
     path = None
@@ -820,9 +820,9 @@ def _pdf_draw_watermark(canvas, doc=None):
     if path:
         try:
             page_w, page_h = A4
-            w, h = 145*mm, 110*mm
+            w, h = 150*mm, 200*mm
             x = (page_w - w) / 2.0
-            y = page_h / 2.0 - h / 2.0 - 5*mm
+            y = (page_h - h) / 2.0 - 8*mm
             canvas.drawImage(
                 path, x, y, width=w, height=h,
                 mask="auto", preserveAspectRatio=True,
@@ -965,12 +965,6 @@ def generate_invoice_pdf(invoice, client=None):
     items_table = Table(items_data, colWidths=[105*mm, 28*mm, 47*mm])
     items_table.setStyle(_pdf_line_table_style())
     elements.append(items_table)
-    elements.append(Spacer(1, 8*mm))
-    elements.append(Paragraph(
-        "Thank you for your Business",
-        ParagraphStyle("ThanksInv", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER,
-                       textColor=colors.HexColor("#1a1a1a")),
-    ))
 
     def _draw_inv_footer(canvas, doc_):
         _pdf_draw_page_chrome(canvas, doc_, "Maxi Taxi Transport - Maseru - Invoice")
@@ -1095,13 +1089,6 @@ def generate_quotation_pdf(quote, client=None):
     if quote.get("notes"):
         elements.append(Paragraph("<b>Notes / Terms</b>", heading))
         elements.append(Paragraph(quote["notes"], normal))
-        elements.append(Spacer(1, 4*mm))
-
-    elements.append(Paragraph(
-        "Thank you for considering Maxy Taxi Transport.",
-        ParagraphStyle("ThanksQ", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER,
-                       textColor=colors.HexColor("#1a1a1a")),
-    ))
 
     def _draw_quote_footer(canvas, doc_):
         _pdf_draw_page_chrome(canvas, doc_, "Maxi Taxi Transport - Maseru - Quotation")
@@ -1112,7 +1099,7 @@ def generate_quotation_pdf(quote, client=None):
 
 
 def _pdf_line_table_style():
-    """Clean table: gold header bar, no grid / no black lines (previous look)."""
+    """Gold header, light-blue accents, line above TOTAL with bordered total cells."""
     return TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f5a623")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
@@ -1120,37 +1107,42 @@ def _pdf_line_table_style():
         ("ALIGN", (1, 0), (1, -1), "CENTER"),
         ("ALIGN", (2, 0), (2, -1), "RIGHT"),
         ("BACKGROUND", (0, 1), (-1, -2), colors.white),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.white),
+        # Total row — soft blue tint + border
+        ("BACKGROUND", (1, -1), (-1, -1), colors.HexColor("#e8f4fc")),
+        ("BOX", (1, -1), (-1, -1), 1.0, colors.HexColor("#5dade2")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.2, colors.HexColor("#f5a623")),
+        ("FONTNAME", (1, -1), (-1, -1), "Helvetica-Bold"),
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        # intentionally no BOX / no LINEBELOW grid
     ])
 
 
 def _pdf_draw_page_chrome(canvas, doc_, footer_label="Maxi Taxi Transport - Maseru"):
-    """Watermark + banking at bottom + gold footer line only."""
+    """Watermark + banking + gold footer; Thank you replaces SAFE-QUICK-RELIABLE."""
     _pdf_draw_watermark(canvas, doc_)
     canvas.saveState()
     page_w, _ = A4
-    # Banking block near bottom (above gold line)
+    # Banking block near bottom
     canvas.setFillColor(colors.HexColor("#1a1a1a"))
     canvas.setFont("Helvetica-Bold", 8)
-    canvas.drawString(15*mm, 28*mm, "Banking details")
+    canvas.drawString(15*mm, 30*mm, "Banking details")
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(colors.HexColor("#333333"))
-    canvas.drawString(15*mm, 24*mm, "Postbank  ·  Acc no 1017866800015  ·  Branch 500100  ·  Maxy Taxi Transport")
-    # Gold line only — no black borders
+    canvas.drawString(15*mm, 26*mm, "Postbank  ·  Acc no 1017866800015  ·  Branch 500100  ·  Maxy Taxi Transport")
+    # Gold line only
     canvas.setStrokeColor(colors.HexColor("#f5a623"))
     canvas.setLineWidth(1.2)
-    canvas.line(15*mm, 18*mm, page_w - 15*mm, 18*mm)
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColor(colors.HexColor("#555555"))
-    canvas.drawCentredString(page_w/2, 12*mm, footer_label)
-    canvas.setFont("Helvetica", 7)
-    canvas.drawCentredString(page_w/2, 8*mm, "SAFE  ·  QUICK  ·  RELIABLE")
+    canvas.line(15*mm, 20*mm, page_w - 15*mm, 20*mm)
+    # Thank you at bottom (replaces SAFE-QUICK-RELIABLE)
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.setFillColor(colors.HexColor("#1a1a1a"))
+    canvas.drawCentredString(page_w/2, 13*mm, "Thank you for your Business")
+    canvas.setFont("Helvetica", 7.5)
+    canvas.setFillColor(colors.HexColor("#5dade2"))
+    canvas.drawCentredString(page_w/2, 8*mm, footer_label)
     canvas.restoreState()
 
 
@@ -1240,12 +1232,6 @@ def generate_receipt_pdf(receipt):
     tbl.setStyle(_pdf_line_table_style())
     elements.append(tbl)
     elements.append(Spacer(1, 8*mm))
-
-    elements.append(Spacer(1, 8*mm))
-    elements.append(Paragraph("Thank you for your Business", ParagraphStyle(
-        "Thanks", parent=styles["Normal"], fontSize=11, alignment=TA_CENTER,
-        textColor=colors.HexColor("#1a1a1a"),
-    )))
 
     def _footer(canvas, doc_):
         _pdf_draw_page_chrome(canvas, doc_, "Maxi Taxi Transport - Maseru - Official Receipt")
