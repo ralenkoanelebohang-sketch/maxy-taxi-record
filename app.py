@@ -808,24 +808,31 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Clean pin/car watermark only (extracted logo mark — not a full scan)."""
+    """Clean pin/car watermark — clearly visible grey brand mark."""
     canvas.saveState()
-    base = os.path.dirname(__file__)
-    path = os.path.join(base, "watermark_taxi.png")
-    if not os.path.exists(path):
-        path = os.path.join(base, "logo_clean.png")
-    if os.path.exists(path):
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = None
+    for name in ("watermark_taxi.png", "logo_clean.png", "logo_transparent.png"):
+        p = os.path.join(base, name)
+        if os.path.exists(p):
+            path = p
+            break
+    if path:
         try:
             page_w, page_h = A4
-            w, h = 95*mm, 110*mm
+            w, h = 125*mm, 145*mm
             x = (page_w - w) / 2.0
-            y = (page_h - h) / 2.0 - 5*mm
+            y = (page_h - h) / 2.0 - 8*mm
             canvas.drawImage(
                 path, x, y, width=w, height=h,
                 mask="auto", preserveAspectRatio=True,
             )
         except Exception:
-            pass
+            try:
+                # Fallback without mask
+                canvas.drawImage(path, x, y, width=w, height=h, preserveAspectRatio=True)
+            except Exception:
+                pass
     canvas.restoreState()
 
 
