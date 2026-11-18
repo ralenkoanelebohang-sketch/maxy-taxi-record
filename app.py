@@ -808,31 +808,8 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Colourful pin+car from logo — visible yellow/black mark."""
-    canvas.saveState()
-    base = os.path.dirname(os.path.abspath(__file__))
-    path = None
-    for name in ("watermark_taxi.png", "logo_pin.png", "logo_clean.png"):
-        p = os.path.join(base, name)
-        if os.path.exists(p):
-            path = p
-            break
-    if path:
-        try:
-            page_w, page_h = A4
-            w, h = 110*mm, 125*mm
-            x = (page_w - w) / 2.0
-            y = (page_h - h) / 2.0 - 5*mm
-            canvas.drawImage(
-                path, x, y, width=w, height=h,
-                mask="auto", preserveAspectRatio=True,
-            )
-        except Exception:
-            try:
-                canvas.drawImage(path, x, y, width=w, height=h, preserveAspectRatio=True)
-            except Exception:
-                pass
-    canvas.restoreState()
+    """Watermark disabled (kept as no-op so PDF layout stays clean)."""
+    return
 
 
 def generate_invoice_pdf(invoice, client=None):
@@ -1155,65 +1132,28 @@ def _pdf_draw_page_chrome(canvas, doc_, footer_label="Maxi Taxi Transport - Mase
 
 
 def generate_receipt_pdf(receipt):
-    """Professional A4 receipt — light blue theme, pin logo, colourful watermark."""
+    """Receipt PDF — same clean letterhead/table style as invoices (restored)."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
-        rightMargin=16*mm, leftMargin=16*mm,
-        topMargin=12*mm, bottomMargin=36*mm,
+        rightMargin=12*mm, leftMargin=12*mm,
+        topMargin=5*mm, bottomMargin=34*mm,
     )
     styles = getSampleStyleSheet()
     elements = []
-    blue = colors.HexColor("#1a6fad")
-    light_blue = colors.HexColor("#e8f4fc")
-    soft_blue = colors.HexColor("#5dade2")
 
-    normal = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=10, leading=14, textColor=colors.HexColor("#222"))
-    right = ParagraphStyle("Right", parent=styles["Normal"], fontSize=10, leading=14, alignment=TA_RIGHT)
-    bold = ParagraphStyle("Bold", parent=styles["Normal"], fontSize=10, leading=14)
-    bold_right = ParagraphStyle("BoldRight", parent=styles["Normal"], fontSize=10, leading=14, alignment=TA_RIGHT)
-    small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, leading=11, textColor=colors.HexColor("#444"), alignment=TA_RIGHT)
+    normal = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=10, leading=13)
+    right = ParagraphStyle("Right", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT)
+    bold = ParagraphStyle("Bold", parent=styles["Normal"], fontSize=10, leading=13)
+    bold_right = ParagraphStyle("BoldRight", parent=styles["Normal"], fontSize=10, leading=13, alignment=TA_RIGHT)
 
-    base = os.path.dirname(os.path.abspath(__file__))
-    pin_path = os.path.join(base, "logo_pin.png")
-    if not os.path.exists(pin_path):
-        pin_path = os.path.join(base, "logo_clean.png")
-
-    # Header: pin logo left + business block right (light blue accent)
-    left_cell = []
-    if os.path.exists(pin_path):
-        pin = Image(pin_path, width=28*mm, height=28*mm)
-        left_cell = [pin]
-    else:
-        left_cell = [Paragraph("<b>MAXY TAXI</b>", bold)]
-
-    right_block = Paragraph(
-        f"<b>MAXY TAXI TRANSPORT</b><br/>"
-        f"{BUSINESS_PHONE}<br/>"
-        f"{BUSINESS_WHATSAPP}<br/>"
-        f"{BUSINESS_EMAIL}<br/>"
-        f"{BUSINESS_LOCATION}<br/>"
-        f"TIN: {BUSINESS_TIN}",
-        small,
-    )
-    hdr = Table([[left_cell[0], right_block]], colWidths=[40*mm, 140*mm])
-    hdr.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BACKGROUND", (0, 0), (-1, -1), light_blue),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("BOX", (0, 0), (-1, -1), 0, colors.white),
-    ]))
-    elements.append(hdr)
-    elements.append(HRFlowable(width="100%", thickness=2.5, color=soft_blue, spaceBefore=2*mm, spaceAfter=5*mm))
-
+    elements.extend(_pdf_letterhead_elements(styles))
     elements.append(Paragraph(
-        "<b>OFFICIAL RECEIPT</b>",
-        ParagraphStyle("RTitle", parent=styles["Heading1"], fontSize=16, alignment=TA_CENTER,
-                       textColor=blue, spaceAfter=5*mm),
+        "RECEIPT",
+        ParagraphStyle("RTitle", parent=styles["Heading1"], fontSize=13, alignment=TA_CENTER,
+                       textColor=colors.HexColor("#1a1a1a"), spaceAfter=3*mm),
     ))
+    elements.append(Spacer(1, 2*mm))
 
     meta = [
         [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", normal),
@@ -1221,19 +1161,16 @@ def generate_receipt_pdf(receipt):
         [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", normal),
          Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right)],
     ]
-    mt = Table(meta, colWidths=[100*mm, 80*mm])
+    mt = Table(meta, colWidths=[95*mm, 85*mm])
     mt.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     elements.append(mt)
     elements.append(Spacer(1, 4*mm))
-    elements.append(Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", normal))
-    elements.append(Spacer(1, 4*mm))
+    elements.append(Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", bold))
+    elements.append(Spacer(1, 3*mm))
 
-    # Same table structure — light blue header instead of gold
     lines = []
     raw = str(receipt.get("description") or "").strip()
     total = float(receipt.get("amount") or 0)
@@ -1274,50 +1211,17 @@ def generate_receipt_pdf(receipt):
         Paragraph(f"<b>M {total:,.2f}</b>", bold_right),
     ])
 
-    tbl = Table(data, colWidths=[100*mm, 38*mm, 42*mm])
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), soft_blue),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("ALIGN", (1, 0), (1, -1), "CENTER"),
-        ("ALIGN", (2, 0), (2, -1), "RIGHT"),
-        ("BACKGROUND", (0, 1), (-1, -2), colors.white),
-        ("BACKGROUND", (1, -1), (-1, -1), light_blue),
-        ("LINEABOVE", (0, -1), (-1, -1), 1.2, soft_blue),
-        ("FONTNAME", (1, -1), (-1, -1), "Helvetica-Bold"),
-        ("TOPPADDING", (0, 0), (-1, -1), 9),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
+    tbl = Table(data, colWidths=[105*mm, 28*mm, 47*mm])
+    tbl.setStyle(_pdf_line_table_style())
     elements.append(tbl)
 
     def _footer(canvas, doc_):
-        _pdf_draw_watermark(canvas, doc_)
-        canvas.saveState()
-        page_w, _ = A4
-        canvas.setFillColor(colors.HexColor("#1a1a1a"))
-        canvas.setFont("Helvetica-Bold", 8)
-        canvas.drawString(16*mm, 30*mm, "Banking details")
-        canvas.setFont("Helvetica", 8)
-        canvas.setFillColor(colors.HexColor("#333333"))
-        canvas.drawString(16*mm, 26*mm, "Postbank  ·  Acc no 1017866800015  ·  Branch 500100  ·  Maxy Taxi Transport")
-        canvas.drawString(16*mm, 22.5*mm, f"TIN: {BUSINESS_TIN}")
-        canvas.setStrokeColor(soft_blue)
-        canvas.setLineWidth(1.5)
-        canvas.line(16*mm, 19*mm, page_w - 16*mm, 19*mm)
-        canvas.setFont("Helvetica-Bold", 10)
-        canvas.setFillColor(colors.HexColor("#1a1a1a"))
-        canvas.drawCentredString(page_w/2, 12*mm, "Thank you for your Business")
-        canvas.setFont("Helvetica", 7.5)
-        canvas.setFillColor(soft_blue)
-        canvas.drawCentredString(page_w/2, 7*mm, "Maxy Taxi Transport · Maseru · Official Receipt")
-        canvas.restoreState()
+        _pdf_draw_page_chrome(canvas, doc_, "Maxi Taxi Transport - Maseru - Official Receipt")
 
     doc.build(elements, onFirstPage=_footer, onLaterPages=_footer)
     buffer.seek(0)
     return buffer
+
 
 
 def generate_weekly_summary_pdf(monday, sunday, wdf, byv, cash, credits, fuel, topup, dcomp, airtime, other, trips, net):
@@ -2999,14 +2903,23 @@ def page_weekly_summary():
         c2.metric("Credits", money(t["credits"]))
         c3.metric("Total revenue", money(t["revenue"]))
         c4.metric("Gross profit", money(t["gross"]))
-        st.markdown("**Expenses**")
-        st.write(f"- Petrol (fuel + top-up): **{money(t['petrol'])}**")
-        st.write(f"- Airtime: **{money(t['airtime'])}**")
-        st.write(f"- Driver compensation + salary: **{money(t['staff'])}** (comp {money(t['dcomp'])} + salary {money(t['salaries'])})")
-        st.write(f"- Fixed monthly: **{money(t['fixed'])}**")
-        st.write(f"- Incidents: **{money(t['incidents'])}**")
-        st.write(f"- Parts & workshop: **{money(t['parts'])}**")
-        st.write(f"- **Total expenses: {money(t['expenses'])}**")
+        st.markdown(f"""
+        <div style="border-left:5px solid #f5a623; background:#1a1a1a; border-radius:8px; padding:14px 16px; margin:12px 0;">
+          <p style="color:#f5a623;font-weight:700;margin:0 0 10px 0;">Expenses</p>
+          <p style="color:#ddd;margin:4px 0;">Petrol (fuel + top-up): <b style="color:#fff">{money(t['petrol'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Airtime: <b style="color:#fff">{money(t['airtime'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Driver compensation + salary: <b style="color:#fff">{money(t['staff'])}</b>
+            <span style="color:#888;">(comp {money(t['dcomp'])} + salary {money(t['salaries'])})</span></p>
+          <p style="color:#ddd;margin:4px 0;">Fixed monthly: <b style="color:#fff">{money(t['fixed'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Incidents: <b style="color:#fff">{money(t['incidents'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Parts &amp; workshop: <b style="color:#fff">{money(t['parts'])}</b></p>
+          <p style="color:#f5a623;font-weight:700;margin:12px 0 0 0;border-top:1px solid #333;padding-top:10px;">
+            Total expenses: {money(t['expenses'])}</p>
+        </div>
+        <div style="border-left:5px solid #2ecc71; background:#122016; border-radius:8px; padding:14px 16px; margin:8px 0 12px 0;">
+          <p style="color:#2ecc71;font-weight:800;margin:0;font-size:16px;">Gross profit: {money(t['gross'])}</p>
+        </div>
+        """, unsafe_allow_html=True)
         petrol_p = LESOTHO_PETROL_95.get(sel)
         if petrol_p:
             st.caption(f"Lesotho Petrol 95 that month: **M{petrol_p:.2f}/L**")
@@ -3019,14 +2932,22 @@ def page_weekly_summary():
         c2.metric("Credits", money(t["credits"]))
         c3.metric("Total revenue", money(t["revenue"]))
         c4.metric("Gross profit", money(t["gross"]))
-        st.markdown("**Expenses (all months)**")
-        st.write(f"- Petrol (fuel + top-up): **{money(t['petrol'])}**")
-        st.write(f"- Airtime: **{money(t['airtime'])}**")
-        st.write(f"- Driver compensation + salary: **{money(t['staff'])}**")
-        st.write(f"- Fixed monthly: **{money(t['fixed'])}**")
-        st.write(f"- Incidents: **{money(t['incidents'])}**")
-        st.write(f"- Parts & workshop: **{money(t['parts'])}**")
-        st.write(f"- **Total expenses: {money(t['expenses'])}**")
+        st.markdown(f"""
+        <div style="border-left:5px solid #f5a623; background:#1a1a1a; border-radius:8px; padding:14px 16px; margin:12px 0;">
+          <p style="color:#f5a623;font-weight:700;margin:0 0 10px 0;">Expenses (all months)</p>
+          <p style="color:#ddd;margin:4px 0;">Petrol (fuel + top-up): <b style="color:#fff">{money(t['petrol'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Airtime: <b style="color:#fff">{money(t['airtime'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Driver compensation + salary: <b style="color:#fff">{money(t['staff'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Fixed monthly: <b style="color:#fff">{money(t['fixed'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Incidents: <b style="color:#fff">{money(t['incidents'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Parts &amp; workshop: <b style="color:#fff">{money(t['parts'])}</b></p>
+          <p style="color:#f5a623;font-weight:700;margin:12px 0 0 0;border-top:1px solid #333;padding-top:10px;">
+            Total expenses: {money(t['expenses'])}</p>
+        </div>
+        <div style="border-left:5px solid #2ecc71; background:#122016; border-radius:8px; padding:14px 16px; margin:8px 0 12px 0;">
+          <p style="color:#2ecc71;font-weight:800;margin:0;font-size:16px;">Gross profit: {money(t['gross'])}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 def page_fuel_prices():
@@ -3644,6 +3565,20 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
+
+def page_documents():
+    """Single menu entry: Quotations / Invoices / Receipts."""
+    st.header("Documents")
+    st.caption("Quotations · Invoices · Receipts")
+    t1, t2, t3 = st.tabs(["Quotations", "Invoices", "Receipts"])
+    with t1:
+        page_quotations()
+    with t2:
+        page_invoices()
+    with t3:
+        page_receipts()
+
+
     pages = {
         "Dashboard": page_dashboard,
         "Daily Entry": page_daily_entry,
@@ -3656,9 +3591,7 @@ def main():
         "Fuel Prices": page_fuel_prices,
         "Clients": page_clients,
         "Monthly Expenses": page_monthly_expenses,
-        "Documents · Quotations": page_quotations,
-        "Documents · Invoices": page_invoices,
-        "Documents · Receipts": page_receipts,
+        "Documents": page_documents,
         "Backup / Export": page_export,
     }
 
