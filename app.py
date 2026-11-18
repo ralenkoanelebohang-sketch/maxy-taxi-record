@@ -3532,6 +3532,19 @@ After that, data survives sleep and restarts.
     st.caption("Password protection is already active. Making it private adds a second layer of security.")
 
 # ---------------------- MAIN ----------------------
+def page_documents():
+    """Single menu entry: Quotations / Invoices / Receipts."""
+    st.header("Documents")
+    st.caption("Quotations · Invoices · Receipts")
+    t1, t2, t3 = st.tabs(["Quotations", "Invoices", "Receipts"])
+    with t1:
+        page_quotations()
+    with t2:
+        page_invoices()
+    with t3:
+        page_receipts()
+
+
 def main():
     init_db()
 
@@ -3564,20 +3577,6 @@ def main():
         </p>
     </div>
     """, unsafe_allow_html=True)
-
-
-def page_documents():
-    """Single menu entry: Quotations / Invoices / Receipts."""
-    st.header("Documents")
-    st.caption("Quotations · Invoices · Receipts")
-    t1, t2, t3 = st.tabs(["Quotations", "Invoices", "Receipts"])
-    with t1:
-        page_quotations()
-    with t2:
-        page_invoices()
-    with t3:
-        page_receipts()
-
 
     pages = {
         "Dashboard": page_dashboard,
@@ -3612,6 +3611,7 @@ def page_documents():
     st.sidebar.markdown("<p style='text-align:center; color:#666; font-size:11px; margin-top:12px;'>5× Honda Fit + Alphard</p>", unsafe_allow_html=True)
 
     pages[choice]()
+
 
 if __name__ == "__main__":
     main()
