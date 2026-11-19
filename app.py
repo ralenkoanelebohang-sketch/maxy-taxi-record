@@ -808,48 +808,8 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Tiled MAXY TAXI + car pin watermark across the full A4 page."""
-    canvas.saveState()
-    base = os.path.dirname(os.path.abspath(__file__))
-    path = None
-    for name in ("logo_pin.png", "watermark_taxi.png", "logo_clean.png"):
-        pth = os.path.join(base, name)
-        if os.path.exists(pth):
-            path = pth
-            break
-    page_w, page_h = A4
-    tile_w, tile_h = 40*mm, 46*mm
-    if path:
-        x = 6*mm
-        while x < page_w - 4*mm:
-            y = 14*mm
-            while y < page_h - 12*mm:
-                try:
-                    canvas.drawImage(
-                        path, x, y, width=tile_w, height=tile_h,
-                        mask="auto", preserveAspectRatio=True,
-                    )
-                except Exception:
-                    pass
-                y += tile_h + 16*mm
-            x += tile_w + 20*mm
-    # Text rows: MAXY TAXI
-    canvas.setFillColor(colors.HexColor("#bbbbbb"))
-    try:
-        canvas.setFillAlpha(0.16)
-    except Exception:
-        pass
-    canvas.setFont("Helvetica-Bold", 12)
-    row = 18*mm
-    while row < page_h:
-        canvas.saveState()
-        canvas.translate(8*mm, row)
-        canvas.rotate(30)
-        for i in range(5):
-            canvas.drawString(i * 50*mm, 0, "MAXY TAXI")
-        canvas.restoreState()
-        row += 26*mm
-    canvas.restoreState()
+    """Watermark disabled (kept as no-op so PDF layout stays clean)."""
+    return
 
 
 def generate_invoice_pdf(invoice, client=None):
@@ -1857,56 +1817,28 @@ def page_records():
                     weekday = ""
             count = len(gdf)
 
-            # Line 1 — date
             st.markdown(f"""
             <div style="border: 2px solid {color}; border-radius: 10px; padding: 10px 12px;
-                        margin-bottom: 8px; background: #141414;">
-                <p style="color:{color}; font-weight:700; margin:0; font-size:13px;">
+                        margin-bottom: 12px; background: #141414;">
+                <p style="color:{color}; font-weight:700; margin:0 0 6px 0; font-size:13px;">
                     📅 {day_str} &nbsp;·&nbsp; {weekday} &nbsp;·&nbsp; {count} vehicle{"s" if count != 1 else ""}
                 </p>
             </div>
             """, unsafe_allow_html=True)
 
-            # Line 2 — driver / airtime / compensation (bold green border)
-            staff_bits = []
-            for _, r in gdf.iterrows():
-                reg = str(r.get("plate") or r.get("vehicle_name") or "")
-                drv = str(r.get("driver_name") or "—")
-                air = float(r.get("airtime") or 0)
-                dcomp = float(r.get("driver_compensation") or 0)
-                staff_bits.append(
-                    f"<span style='margin-right:14px;'><b>{reg}</b> · {drv} · "
-                    f"Airtime {money(air)} · Comp {money(dcomp)}</span>"
-                )
-            st.markdown(f"""
-            <div style="border: 3px solid #2ecc71; border-radius: 10px; padding: 10px 12px;
-                        margin-bottom: 8px; background: #0f1a12;">
-                <p style="color:#2ecc71; font-weight:800; margin:0 0 6px 0; font-size:12px;">
-                    DRIVER · AIRTIME · COMPENSATION
-                </p>
-                <p style="color:#ddd; margin:0; font-size:12px; line-height:1.6;">
-                    {''.join(staff_bits)}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Line 3 — cash, petrol, trips, credits
-            show_cols = ['plate', 'duty', 'trips', 'cash_collected',
-                         'fuel_cost', 'fuel_topup', 'credits']
+            show_cols = ['plate', 'driver_name', 'duty', 'trips', 'cash_collected',
+                         'fuel_cost', 'fuel_topup', 'driver_compensation', 'airtime',
+                         'credits']
             display = gdf[[c for c in show_cols if c in gdf.columns]].copy()
-            display = display.rename(columns={
-                "plate": "Registration number",
-                "cash_collected": "Cash",
-                "fuel_cost": "Petrol",
-                "fuel_topup": "Fuel top-up",
-                "credits": "Credits",
-            })
+            display = display.rename(columns={"plate": "Registration number"})
             st.dataframe(
                 display.style.format({
-                    'Cash': 'M {:,.0f}',
-                    'Petrol': 'M {:,.0f}',
-                    'Fuel top-up': 'M {:,.0f}',
-                    'Credits': 'M {:,.0f}',
+                    'cash_collected': 'M {:,.0f}',
+                    'fuel_cost': 'M {:,.0f}',
+                    'fuel_topup': 'M {:,.0f}',
+                    'driver_compensation': 'M {:,.0f}',
+                    'airtime': 'M {:,.0f}',
+                    'credits': 'M {:,.0f}',
                 }),
                 use_container_width=True,
                 hide_index=True
@@ -2513,15 +2445,14 @@ def page_monthly_expenses():
         month_labels = [label for _, _, label in FY_MONTHS]
         sel_month = st.selectbox("Month", month_labels, key="me_month")
 
-        # Ensure extra columns exist
-        for col in ("stationery", "vehicle_instalment"):
+        # Ensure stationery column exists
+        try:
+            execute("ALTER TABLE monthly_expenses ADD COLUMN stationery DOUBLE PRECISION DEFAULT 0")
+        except Exception:
             try:
-                execute(f"ALTER TABLE monthly_expenses ADD COLUMN {col} DOUBLE PRECISION DEFAULT 0")
+                execute("ALTER TABLE monthly_expenses ADD COLUMN stationery REAL DEFAULT 0")
             except Exception:
-                try:
-                    execute(f"ALTER TABLE monthly_expenses ADD COLUMN {col} REAL DEFAULT 0")
-                except Exception:
-                    pass
+                pass
 
         existing = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (sel_month,))
         if not existing.empty:
@@ -2531,11 +2462,10 @@ def page_monthly_expenses():
             sal0 = float(row.get("salaries") or 0)
             wash0 = float(row.get("car_wash") or 0)
             stat0 = float(row.get("stationery") or 0)
-            inst0 = float(row.get("vehicle_instalment") or 0)
             misc0 = float(row.get("miscellaneous") or 0)
             notes0 = str(row.get("notes") or "")
         else:
-            rent0 = wifi0 = sal0 = wash0 = stat0 = inst0 = misc0 = 0.0
+            rent0 = wifi0 = sal0 = wash0 = stat0 = misc0 = 0.0
             notes0 = ""
 
         df = prepare_records_df()
@@ -2555,12 +2485,6 @@ def page_monthly_expenses():
         with c3:
             stat_s = st.text_input("Stationery (M)", value=format_amount(stat0) if stat0 else "", placeholder="0.00")
             misc_s = st.text_input("Miscellaneous (M)", value=format_amount(misc0) if misc0 else "", placeholder="0.00")
-        inst_s = st.text_input(
-            "Vehicle instalment / car purchase balance (M)",
-            value=format_amount(inst0) if inst0 else "",
-            placeholder="e.g. monthly balance on car bought after trade-in",
-            help="Asset: vehicle bought on instalment (not paid in full at once)",
-        )
         notes = st.text_input("Notes", value=notes0)
 
         rent = parse_amount(rent_s)
@@ -2568,9 +2492,8 @@ def page_monthly_expenses():
         salaries = parse_amount(sal_s)
         car_wash = parse_amount(wash_s)
         stationery = parse_amount(stat_s)
-        vehicle_instalment = parse_amount(inst_s)
         miscellaneous = parse_amount(misc_s)
-        fixed_total = rent + wifi + salaries + car_wash + stationery + vehicle_instalment + miscellaneous
+        fixed_total = rent + wifi + salaries + car_wash + stationery + miscellaneous
         staff_total = driver_comp_total + salaries
 
         m1, m2, m3 = st.columns(3)
@@ -2581,19 +2504,19 @@ def page_monthly_expenses():
         if st.button("Save fixed costs", type="primary", use_container_width=True):
             if not existing.empty:
                 execute(
-                    "UPDATE monthly_expenses SET rent=?, wifi=?, salaries=?, car_wash=?, stationery=?, vehicle_instalment=?, miscellaneous=?, notes=?, maintenance=0 WHERE expense_month=?",
-                    (rent, wifi, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes, sel_month),
+                    "UPDATE monthly_expenses SET rent=?, wifi=?, salaries=?, car_wash=?, stationery=?, miscellaneous=?, notes=?, maintenance=0 WHERE expense_month=?",
+                    (rent, wifi, salaries, car_wash, stationery, miscellaneous, notes, sel_month),
                 )
             else:
                 execute(
-                    "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (sel_month, rent, wifi, 0, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes),
+                    "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, stationery, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (sel_month, rent, wifi, 0, salaries, car_wash, stationery, miscellaneous, notes),
                 )
             st.success(f"Saved fixed costs for {sel_month}")
             st.rerun()
 
         all_me = query_df(
-            "SELECT expense_month, rent, wifi, salaries, car_wash, stationery, vehicle_instalment, miscellaneous "
+            "SELECT expense_month, rent, wifi, salaries, car_wash, stationery, miscellaneous "
             "FROM monthly_expenses ORDER BY expense_month"
         )
         if not all_me.empty:
@@ -2815,7 +2738,7 @@ def _period_expense_breakdown(df_slice, month_label=None):
             me = query_df("SELECT * FROM monthly_expenses")
         if me is not None and not me.empty:
             for _, r in me.iterrows():
-                for k in ["rent", "wifi", "car_wash", "stationery", "miscellaneous", "maintenance", "vehicle_instalment"]:
+                for k in ["rent", "wifi", "car_wash", "stationery", "miscellaneous", "maintenance"]:
                     fixed += float(r.get(k) or 0)
                 salaries += float(r.get("salaries") or 0)
     except Exception:
