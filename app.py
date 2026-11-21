@@ -2944,7 +2944,7 @@ def _period_expense_breakdown(df_slice, month_label=None):
             me = query_df("SELECT * FROM monthly_expenses")
         if me is not None and not me.empty:
             for _, r in me.iterrows():
-                for k in ["rent", "wifi", "car_wash", "stationery", "miscellaneous", "maintenance", "vehicle_instalment"]:
+                for k in ["rent", "wifi", "car_wash", "stationery", "miscellaneous", "maintenance"]:
                     fixed += float(r.get(k) or 0)
                 salaries += float(r.get("salaries") or 0)
     except Exception:
@@ -2986,8 +2986,17 @@ def _period_expense_breakdown(df_slice, month_label=None):
     except Exception:
         pass
 
-    # Asset / vehicle purchase payments (accounting cash out)
+    # Asset / vehicle purchase: from Fixed "Asset amount" (vehicle_instalment) + payment log
     vehicle_purchases = 0.0
+    try:
+        if month_label and month_label != "All":
+            me2 = query_df("SELECT vehicle_instalment FROM monthly_expenses WHERE expense_month = ?", (month_label,))
+        else:
+            me2 = query_df("SELECT vehicle_instalment FROM monthly_expenses")
+        if me2 is not None and not me2.empty:
+            vehicle_purchases += float(pd.to_numeric(me2["vehicle_instalment"], errors="coerce").fillna(0).sum())
+    except Exception:
+        pass
     try:
         ap = query_df("SELECT pay_date, amount FROM asset_payments")
         if ap is not None and not ap.empty:
@@ -2996,12 +3005,11 @@ def _period_expense_breakdown(df_slice, month_label=None):
                 ap = ap[ap["_d"].apply(
                     lambda x: next((lab for y, m, lab in FY_MONTHS if pd.notna(x) and x.year == y and x.month == m), "") == month_label
                 )]
-            vehicle_purchases = float(pd.to_numeric(ap["amount"], errors="coerce").fillna(0).sum())
-        else:
-            # Fallback: use assets amount_paid if no payment log
-            adf = query_df("SELECT purchase_date, amount_paid, total_cost FROM assets")
-            if adf is not None and not adf.empty and month_label == "All":
-                vehicle_purchases = float(pd.to_numeric(adf["amount_paid"], errors="coerce").fillna(0).sum())
+            # Avoid double-count if user also logged asset_payments AND vehicle_instalment;
+            # only add payments when vehicle_instalment total is still 0
+            pay_sum = float(pd.to_numeric(ap["amount"], errors="coerce").fillna(0).sum())
+            if vehicle_purchases <= 0:
+                vehicle_purchases += pay_sum
     except Exception:
         pass
 
@@ -3071,6 +3079,44 @@ def _plot_vehicle_bars(byc, key_prefix="chart"):
         unsafe_allow_html=True,
     )
 
+
+
+def _expense_cards_html(t):
+    """Each expense in its own red-bordered box (same style as revenue/profit cards)."""
+    items = [
+        ("Petrol (fuel + top-up)", t.get("petrol", 0)),
+        ("Airtime", t.get("airtime", 0)),
+        ("Driver compensation + salary", t.get("staff", 0)),
+        ("Fixed monthly (rent, wifi, salaries excl. asset)", t.get("fixed", 0)),
+        ("Incidents", t.get("incidents", 0)),
+        ("Parts & workshop", t.get("parts", 0)),
+        ("Vehicle / asset purchases", t.get("vehicle_purchases", 0)),
+        ("Total expenses", t.get("expenses", 0)),
+    ]
+    # subline for staff breakdown
+    cards = []
+    for label, val in items:
+        is_total = label == "Total expenses"
+        border = "#e74c3c"
+        title_c = "#e74c3c" if not is_total else "#ff6b6b"
+        weight = "800" if is_total else "700"
+        sub = ""
+        if label.startswith("Driver compensation"):
+            sub = (
+                f"<p style='color:#888;font-size:11px;margin:4px 0 0 0;'>"
+                f"comp {money(t.get('dcomp', 0))} + salary {money(t.get('salaries', 0))}</p>"
+            )
+        cards.append(
+            f"""
+            <div style="border-left:5px solid {border}; background:#1a1212; border-radius:10px;
+                        padding:14px 16px; margin:10px 0;">
+              <p style="color:#aaa;font-size:11px;letter-spacing:1px;margin:0 0 4px 0;text-transform:uppercase;">{label}</p>
+              <p style="color:{title_c};font-weight:{weight};font-size:22px;margin:0;">{money(val)}</p>
+              {sub}
+            </div>
+            """
+        )
+    return "".join(cards)
 
 def page_weekly_summary():
     st.header("Fleet Summary")
@@ -3183,22 +3229,11 @@ def page_weekly_summary():
         c2.metric("Credits", money(t["credits"]))
         c3.metric("Total revenue", money(t["revenue"]))
         c4.metric("Gross profit", money(t["gross"]))
+        st.markdown(_expense_cards_html(t), unsafe_allow_html=True)
         st.markdown(f"""
-        <div style="border-left:5px solid #f5a623; background:#1a1a1a; border-radius:8px; padding:14px 16px; margin:12px 0;">
-          <p style="color:#f5a623;font-weight:700;margin:0 0 10px 0;">Expenses</p>
-          <p style="color:#ddd;margin:4px 0;">Petrol (fuel + top-up): <b style="color:#fff">{money(t['petrol'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Airtime: <b style="color:#fff">{money(t['airtime'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Driver compensation + salary: <b style="color:#fff">{money(t['staff'])}</b>
-            <span style="color:#888;">(comp {money(t['dcomp'])} + salary {money(t['salaries'])})</span></p>
-          <p style="color:#ddd;margin:4px 0;">Fixed monthly: <b style="color:#fff">{money(t['fixed'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Incidents: <b style="color:#fff">{money(t['incidents'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Parts &amp; workshop: <b style="color:#fff">{money(t['parts'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Vehicle / asset purchases: <b style="color:#fff">{money(t.get('vehicle_purchases', 0))}</b></p>
-          <p style="color:#f5a623;font-weight:700;margin:12px 0 0 0;border-top:1px solid #333;padding-top:10px;">
-            Total expenses: {money(t['expenses'])}</p>
-        </div>
-        <div style="border-left:5px solid #2ecc71; background:#122016; border-radius:8px; padding:14px 16px; margin:8px 0 12px 0;">
-          <p style="color:#2ecc71;font-weight:800;margin:0;font-size:16px;">Gross profit: {money(t['gross'])}</p>
+        <div style="border-left:5px solid #2ecc71; background:#122016; border-radius:10px; padding:14px 16px; margin:8px 0 12px 0;">
+          <p style="color:#aaa;font-size:11px;letter-spacing:1px;margin:0 0 4px 0;text-transform:uppercase;">Gross profit</p>
+          <p style="color:#2ecc71;font-weight:800;margin:0;font-size:22px;">{money(t['gross'])}</p>
         </div>
         """, unsafe_allow_html=True)
         petrol_p = LESOTHO_PETROL_95.get(sel)
@@ -3233,21 +3268,11 @@ def page_weekly_summary():
         c2.metric("Credits", money(t["credits"]))
         c3.metric("Total revenue", money(t["revenue"]))
         c4.metric("Gross profit", money(t["gross"]))
+        st.markdown(_expense_cards_html(t), unsafe_allow_html=True)
         st.markdown(f"""
-        <div style="border-left:5px solid #f5a623; background:#1a1a1a; border-radius:8px; padding:14px 16px; margin:12px 0;">
-          <p style="color:#f5a623;font-weight:700;margin:0 0 10px 0;">Expenses (all months)</p>
-          <p style="color:#ddd;margin:4px 0;">Petrol (fuel + top-up): <b style="color:#fff">{money(t['petrol'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Airtime: <b style="color:#fff">{money(t['airtime'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Driver compensation + salary: <b style="color:#fff">{money(t['staff'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Fixed monthly: <b style="color:#fff">{money(t['fixed'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Incidents: <b style="color:#fff">{money(t['incidents'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Parts &amp; workshop: <b style="color:#fff">{money(t['parts'])}</b></p>
-          <p style="color:#ddd;margin:4px 0;">Vehicle / asset purchases: <b style="color:#fff">{money(t.get('vehicle_purchases', 0))}</b></p>
-          <p style="color:#f5a623;font-weight:700;margin:12px 0 0 0;border-top:1px solid #333;padding-top:10px;">
-            Total expenses: {money(t['expenses'])}</p>
-        </div>
-        <div style="border-left:5px solid #2ecc71; background:#122016; border-radius:8px; padding:14px 16px; margin:8px 0 12px 0;">
-          <p style="color:#2ecc71;font-weight:800;margin:0;font-size:16px;">Gross profit: {money(t['gross'])}</p>
+        <div style="border-left:5px solid #2ecc71; background:#122016; border-radius:10px; padding:14px 16px; margin:8px 0 12px 0;">
+          <p style="color:#aaa;font-size:11px;letter-spacing:1px;margin:0 0 4px 0;text-transform:uppercase;">Gross profit</p>
+          <p style="color:#2ecc71;font-weight:800;margin:0;font-size:22px;">{money(t['gross'])}</p>
         </div>
         """, unsafe_allow_html=True)
         st.subheader("Per vehicle (all months)")
