@@ -1618,6 +1618,7 @@ def page_dashboard():
                 g = fe.groupby("reg").agg(fuel_spend=("fuel_spend", "sum"), trips=("trips", "sum")).reset_index()
                 g["Est. litres"] = (g["fuel_spend"] / price).round(1)
                 g["M per trip"] = g.apply(lambda r: (r["fuel_spend"] / r["trips"]) if r["trips"] else 0, axis=1).round(1)
+                g = g.sort_values("M per trip", ascending=False)
                 g.columns = ["Registration", "Fuel+top-up (M)", "Trips", "Est. litres", "M per trip"]
                 st.dataframe(g, use_container_width=True, hide_index=True)
         else:
@@ -2725,6 +2726,32 @@ def page_monthly_expenses():
             except Exception:
                 pass
 
+
+        # Payment history table
+        try:
+            execute("""
+                CREATE TABLE IF NOT EXISTS asset_payments (
+                    id SERIAL PRIMARY KEY,
+                    asset_id INTEGER,
+                    pay_date TEXT,
+                    amount DOUBLE PRECISION DEFAULT 0,
+                    notes TEXT
+                )
+            """)
+        except Exception:
+            try:
+                execute("""
+                    CREATE TABLE IF NOT EXISTS asset_payments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        asset_id INTEGER,
+                        pay_date TEXT,
+                        amount REAL DEFAULT 0,
+                        notes TEXT
+                    )
+                """)
+            except Exception:
+                pass
+
         with st.form("asset_form"):
             c1, c2 = st.columns(2)
             with c1:
@@ -2750,6 +2777,57 @@ def page_monthly_expenses():
                     )
                     st.success("Asset saved")
                     st.rerun()
+
+
+        st.markdown("---")
+        st.markdown("**Quick record: car bought June 2026 (trade-in balance)**")
+        st.caption("Purchase 4 Jun M30,000 · Paid 12 Jun M10,000 · 25 Jun M10,000 · Final 25 Jul M10,000")
+        q_name = st.text_input("Car / asset name", value="Honda Fit (June 2026 purchase)", key="quick_car_name")
+        q_plate = st.text_input("Plate", value="", key="quick_car_plate", placeholder="e.g. A 940 BDL")
+        if st.button("Save this purchase + 3 payments", type="primary", key="quick_car_save"):
+            execute(
+                """INSERT INTO assets
+                   (asset_name, asset_type, purchase_date, total_cost, amount_paid, monthly_instalment, plate, notes)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (q_name.strip() or "Vehicle purchase June 2026", "Vehicle", "2026-06-04",
+                 30000.0, 30000.0, 10000.0, q_plate.strip(),
+                 "Bought after selling old car. Balance paid in 3 instalments."),
+            )
+            # Get last id
+            last = query_df("SELECT id FROM assets ORDER BY id DESC LIMIT 1")
+            if last is not None and not last.empty:
+                aid = int(last.iloc[0]["id"])
+                for d, a in [("2026-06-12", 10000.0), ("2026-06-25", 10000.0), ("2026-07-25", 10000.0)]:
+                    try:
+                        execute(
+                            "INSERT INTO asset_payments (asset_id, pay_date, amount, notes) VALUES (?,?,?,?)",
+                            (aid, d, a, "Instalment"),
+                        )
+                    except Exception:
+                        pass
+                # Also put instalment totals on Fixed for June / July if empty
+                for mon, amt in [("June 2026", 20000.0), ("July 2026", 10000.0)]:
+                    me = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (mon,))
+                    if me is None or me.empty:
+                        try:
+                            execute(
+                                "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                                (mon, 0, 0, 0, 0, 0, 0, amt, 0, "Vehicle instalment auto from asset"),
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            cur = float(me.iloc[0].get("vehicle_instalment") or 0)
+                            if cur <= 0:
+                                execute(
+                                    "UPDATE monthly_expenses SET vehicle_instalment = ? WHERE expense_month = ?",
+                                    (amt, mon),
+                                )
+                        except Exception:
+                            pass
+            st.success("Car purchase and 3 payments saved. June M20,000 + July M10,000 linked.")
+            st.rerun()
 
         month_labels_a = ["All months"] + [label for _, _, label in FY_MONTHS]
         sel_asset_month = st.selectbox("Month filter", month_labels_a, key="assets_month_filter")
@@ -2805,10 +2883,31 @@ def page_monthly_expenses():
                 with c3:
                     pay_s = st.text_input("Add payment (M)", key="asset_pay_amt", placeholder="0.00")
                     if st.button("Apply payment", use_container_width=True, key="asset_pay_btn"):
-                        new_paid = float(row.get("amount_paid") or 0) + parse_amount(pay_s)
+                        amt = parse_amount(pay_s)
+                        new_paid = float(row.get("amount_paid") or 0) + amt
                         execute("UPDATE assets SET amount_paid=? WHERE id=?", (new_paid, int(row["id"])))
+                        try:
+                            execute(
+                                "INSERT INTO asset_payments (asset_id, pay_date, amount, notes) VALUES (?,?,?,?)",
+                                (int(row["id"]), date.today().isoformat(), amt, "Instalment payment"),
+                            )
+                        except Exception:
+                            pass
                         st.success(f"Payment applied: {money(new_paid)}")
                         st.rerun()
+
+                st.markdown("**Payment history**")
+                try:
+                    pays = query_df(
+                        "SELECT pay_date, amount, notes FROM asset_payments WHERE asset_id = ? ORDER BY pay_date",
+                        (int(row["id"]),),
+                    )
+                    if pays is not None and not pays.empty:
+                        st.dataframe(pays, use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("No payment history yet for this asset.")
+                except Exception:
+                    st.caption("Payment history will appear after the first logged payment.")
 
     with tab_inc:
         st.markdown("**Log a fine, accident, damage or police cost**")
@@ -3068,14 +3167,34 @@ def _period_expense_breakdown(df_slice, month_label=None):
     except Exception:
         pass
 
+    # Asset / vehicle purchase payments (accounting cash out)
+    vehicle_purchases = 0.0
+    try:
+        ap = query_df("SELECT pay_date, amount FROM asset_payments")
+        if ap is not None and not ap.empty:
+            ap["_d"] = pd.to_datetime(ap["pay_date"], errors="coerce")
+            if month_label and month_label != "All":
+                ap = ap[ap["_d"].apply(
+                    lambda x: next((lab for y, m, lab in FY_MONTHS if pd.notna(x) and x.year == y and x.month == m), "") == month_label
+                )]
+            vehicle_purchases = float(pd.to_numeric(ap["amount"], errors="coerce").fillna(0).sum())
+        else:
+            # Fallback: use assets amount_paid if no payment log
+            adf = query_df("SELECT purchase_date, amount_paid, total_cost FROM assets")
+            if adf is not None and not adf.empty and month_label == "All":
+                vehicle_purchases = float(pd.to_numeric(adf["amount_paid"], errors="coerce").fillna(0).sum())
+    except Exception:
+        pass
+
     staff = dcomp + salaries
-    expenses = petrol + airtime + staff + fixed + incidents + parts
+    expenses = petrol + airtime + staff + fixed + incidents + parts + vehicle_purchases
     gross = revenue - expenses
     return {
         "cash": cash, "credits": credits, "revenue": revenue,
         "petrol": petrol, "airtime": airtime, "staff": staff,
         "dcomp": dcomp, "salaries": salaries,
         "fixed": fixed, "incidents": incidents, "parts": parts,
+        "vehicle_purchases": vehicle_purchases,
         "expenses": expenses, "gross": gross,
     }
 
@@ -3089,7 +3208,8 @@ def _plot_vehicle_bars(byc, key_prefix="chart"):
     for col in ("Profit", "Revenue", "Expenses"):
         if col not in df.columns:
             return
-    max_p = max(float(df["Profit"].max()), 1.0)
+    df = df.sort_values("Profit", ascending=False)
+    max_p = max(float(df["Profit"].abs().max()), 1.0)
     max_r = max(float(df["Revenue"].max()), float(df["Expenses"].max()), 1.0)
     colors = ["#f5a623", "#2ecc71", "#3498db", "#e74c3c", "#9b59b6", "#1abc9c"]
     bars_p = []
@@ -3254,6 +3374,7 @@ def page_weekly_summary():
           <p style="color:#ddd;margin:4px 0;">Fixed monthly: <b style="color:#fff">{money(t['fixed'])}</b></p>
           <p style="color:#ddd;margin:4px 0;">Incidents: <b style="color:#fff">{money(t['incidents'])}</b></p>
           <p style="color:#ddd;margin:4px 0;">Parts &amp; workshop: <b style="color:#fff">{money(t['parts'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Vehicle / asset purchases: <b style="color:#fff">{money(t.get('vehicle_purchases', 0))}</b></p>
           <p style="color:#f5a623;font-weight:700;margin:12px 0 0 0;border-top:1px solid #333;padding-top:10px;">
             Total expenses: {money(t['expenses'])}</p>
         </div>
@@ -3302,6 +3423,7 @@ def page_weekly_summary():
           <p style="color:#ddd;margin:4px 0;">Fixed monthly: <b style="color:#fff">{money(t['fixed'])}</b></p>
           <p style="color:#ddd;margin:4px 0;">Incidents: <b style="color:#fff">{money(t['incidents'])}</b></p>
           <p style="color:#ddd;margin:4px 0;">Parts &amp; workshop: <b style="color:#fff">{money(t['parts'])}</b></p>
+          <p style="color:#ddd;margin:4px 0;">Vehicle / asset purchases: <b style="color:#fff">{money(t.get('vehicle_purchases', 0))}</b></p>
           <p style="color:#f5a623;font-weight:700;margin:12px 0 0 0;border-top:1px solid #333;padding-top:10px;">
             Total expenses: {money(t['expenses'])}</p>
         </div>
