@@ -492,10 +492,11 @@ def release_conn(conn):
 
 def clear_data_cache():
     """Call after any insert/update/delete so screens refresh."""
-    try:
-        load_all_records.clear()
-    except Exception:
-        pass
+    for fn in (load_all_records, prepare_records_df):
+        try:
+            fn.clear()
+        except Exception:
+            pass
 
 
 @st.cache_resource
@@ -507,7 +508,10 @@ def _init_db_once():
 
 def init_db():
     _init_db_once()
-    ensure_extra_tables()
+    # Only ensure extra tables once per session
+    if not st.session_state.get("_extra_tables_ok"):
+        ensure_extra_tables()
+        st.session_state["_extra_tables_ok"] = True
 
 
 def ensure_extra_tables():
@@ -769,7 +773,7 @@ def execute(sql, params=()):
     return last_id
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_all_records():
     """Cached full daily_records pull — speeds up Dashboard / Records / Fleet."""
     return query_df("SELECT * FROM daily_records")
@@ -1381,14 +1385,24 @@ def total_credits_row(row):
             float(row.get('credit_waleslink') or 0) +
             float(row.get('credit_lnlvip') or 0))
 
+@st.cache_data(ttl=300, show_spinner=False)
 def prepare_records_df():
+    """Cached processed daily records — avoid re-parse every widget click."""
     df = load_all_records()
     if df is None or df.empty:
         return pd.DataFrame()
     df = df.copy()
     df['record_date'] = pd.to_datetime(df['record_date'], errors='coerce')
     df['fy_month'] = df['record_date'].apply(get_fy_label)
-    df['credits'] = df.apply(total_credits_row, axis=1)
+    # Vectorized credits sum when columns exist
+    credit_cols = [c for c in (
+        'credit_alliance', 'credit_lehae', 'credit_worldvision',
+        'credit_waleslink', 'credit_lnlvip',
+    ) if c in df.columns]
+    if credit_cols:
+        df['credits'] = df[credit_cols].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1)
+    else:
+        df['credits'] = df.apply(total_credits_row, axis=1)
     for col, default in [
         ('fuel_topup', 0), ('driver_compensation', 0), ('airtime', 0),
         ('other_expenses', 0), ('fuel_cost', 0), ('cash_collected', 0),
@@ -2592,8 +2606,8 @@ def page_monthly_expenses():
     st.header("Monthly Expenses")
     st.caption("Fixed costs · incidents & fines · parts & workshop")
 
-    tab_fixed, tab_assets, tab_inc, tab_parts = st.tabs(
-        ["Fixed monthly", "Assets (vehicles)", "Incidents & fines", "Parts & workshop"]
+    tab_fixed, tab_inc, tab_parts = st.tabs(
+        ["Fixed monthly", "Incidents & fines", "Parts & workshop"]
     )
 
     with tab_fixed:
@@ -2642,11 +2656,26 @@ def page_monthly_expenses():
         with c3:
             stat_s = st.text_input("Stationery (M)", value=format_amount(stat0) if stat0 else "", placeholder="0.00")
             misc_s = st.text_input("Miscellaneous (M)", value=format_amount(misc0) if misc0 else "", placeholder="0.00")
+        st.markdown("**Asset (cab purchase / instalment)**")
+        veh_opts = ["— None —"] + [f"{v['name']} · {v['plate']}" for v in VEHICLES]
+        # Restore previous selection from notes if saved as Asset: ...
+        default_veh = "— None —"
+        if notes0 and "Asset:" in notes0:
+            for opt in veh_opts:
+                if opt != "— None —" and opt.split("·")[-1].strip() in notes0:
+                    default_veh = opt
+                    break
+        asset_veh = st.selectbox(
+            "Select vehicle",
+            veh_opts,
+            index=veh_opts.index(default_veh) if default_veh in veh_opts else 0,
+            key="fixed_asset_veh",
+        )
         inst_s = st.text_input(
-            "Vehicle instalment / car purchase balance (M)",
+            "Asset amount (M)",
             value=format_amount(inst0) if inst0 else "",
-            placeholder="e.g. monthly balance on car bought after trade-in",
-            help="Asset: vehicle bought on instalment (not paid in full at once)",
+            placeholder="Amount paid this month for this vehicle",
+            key="fixed_asset_amt",
         )
         notes = st.text_input("Notes", value=notes0)
 
@@ -2659,22 +2688,34 @@ def page_monthly_expenses():
         miscellaneous = parse_amount(misc_s)
         fixed_total = rent + wifi + salaries + car_wash + stationery + vehicle_instalment + miscellaneous
         staff_total = driver_comp_total + salaries
+        # Tag notes with selected asset vehicle
+        save_notes = notes or ""
+        if asset_veh and asset_veh != "— None —":
+            tag = f"Asset: {asset_veh}"
+            if "Asset:" in save_notes:
+                # replace existing Asset: line prefix
+                parts = [ln for ln in save_notes.split(" | ") if not ln.startswith("Asset:")]
+                save_notes = " | ".join([tag] + parts) if parts else tag
+            else:
+                save_notes = f"{tag} | {save_notes}" if save_notes else tag
 
         m1, m2, m3 = st.columns(3)
         m1.metric("Fixed monthly total", money(fixed_total))
         m2.metric("Driver compensation (daily)", money(driver_comp_total))
         m3.metric("Staff total (comp + salary)", money(staff_total))
+        if asset_veh != "— None —" and vehicle_instalment:
+            st.caption(f"Asset this month: **{asset_veh}** · {money(vehicle_instalment)}")
 
         if st.button("Save fixed costs", type="primary", use_container_width=True):
             if not existing.empty:
                 execute(
                     "UPDATE monthly_expenses SET rent=?, wifi=?, salaries=?, car_wash=?, stationery=?, vehicle_instalment=?, miscellaneous=?, notes=?, maintenance=0 WHERE expense_month=?",
-                    (rent, wifi, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes, sel_month),
+                    (rent, wifi, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, save_notes, sel_month),
                 )
             else:
                 execute(
                     "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                    (sel_month, rent, wifi, 0, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes),
+                    (sel_month, rent, wifi, 0, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, save_notes),
                 )
             st.success(f"Saved fixed costs for {sel_month}")
             st.rerun()
@@ -2686,228 +2727,6 @@ def page_monthly_expenses():
         if not all_me.empty:
             st.dataframe(all_me, use_container_width=True, hide_index=True)
 
-
-    with tab_assets:
-        st.markdown("**Record assets you bought** (e.g. a car paid in instalments after selling an old one)")
-        st.caption("Tracks purchase cost, monthly instalment paid, and remaining balance")
-        ensure_extra_tables()
-        # Ensure assets table
-        try:
-            execute("""
-                CREATE TABLE IF NOT EXISTS assets (
-                    id SERIAL PRIMARY KEY,
-                    asset_name TEXT,
-                    asset_type TEXT,
-                    purchase_date TEXT,
-                    total_cost DOUBLE PRECISION DEFAULT 0,
-                    amount_paid DOUBLE PRECISION DEFAULT 0,
-                    monthly_instalment DOUBLE PRECISION DEFAULT 0,
-                    plate TEXT,
-                    notes TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-        except Exception:
-            try:
-                execute("""
-                    CREATE TABLE IF NOT EXISTS assets (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        asset_name TEXT,
-                        asset_type TEXT,
-                        purchase_date TEXT,
-                        total_cost REAL DEFAULT 0,
-                        amount_paid REAL DEFAULT 0,
-                        monthly_instalment REAL DEFAULT 0,
-                        plate TEXT,
-                        notes TEXT,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-            except Exception:
-                pass
-
-
-        # Payment history table
-        try:
-            execute("""
-                CREATE TABLE IF NOT EXISTS asset_payments (
-                    id SERIAL PRIMARY KEY,
-                    asset_id INTEGER,
-                    pay_date TEXT,
-                    amount DOUBLE PRECISION DEFAULT 0,
-                    notes TEXT
-                )
-            """)
-        except Exception:
-            try:
-                execute("""
-                    CREATE TABLE IF NOT EXISTS asset_payments (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        asset_id INTEGER,
-                        pay_date TEXT,
-                        amount REAL DEFAULT 0,
-                        notes TEXT
-                    )
-                """)
-            except Exception:
-                pass
-
-        with st.form("asset_form"):
-            c1, c2 = st.columns(2)
-            with c1:
-                aname = st.text_input("Asset name *", placeholder="e.g. Honda Fit A 940 BDL")
-                atype = st.selectbox("Type", ["Vehicle", "Equipment", "Other"])
-                pdate = st.date_input("Purchase date", value=date.today())
-            with c2:
-                total_s = st.text_input("Total cost (M)", placeholder="0.00")
-                paid_s = st.text_input("Amount already paid (M)", placeholder="0.00")
-                inst_s = st.text_input("Monthly instalment (M)", placeholder="0.00")
-            plate = st.text_input("Registration / plate (if vehicle)", placeholder="A 940 BDL")
-            notes = st.text_input("Notes", placeholder="Trade-in, seller, balance terms...")
-            if st.form_submit_button("Save asset", type="primary"):
-                if not aname.strip():
-                    st.error("Asset name is required")
-                else:
-                    execute(
-                        """INSERT INTO assets
-                           (asset_name, asset_type, purchase_date, total_cost, amount_paid, monthly_instalment, plate, notes)
-                           VALUES (?,?,?,?,?,?,?,?)""",
-                        (aname.strip(), atype, pdate.isoformat(), parse_amount(total_s),
-                         parse_amount(paid_s), parse_amount(inst_s), plate.strip(), notes),
-                    )
-                    st.success("Asset saved")
-                    st.rerun()
-
-
-        st.markdown("---")
-        st.markdown("**Quick record: car bought June 2026 (trade-in balance)**")
-        st.caption("Purchase 4 Jun M30,000 · Paid 12 Jun M10,000 · 25 Jun M10,000 · Final 25 Jul M10,000")
-        q_name = st.text_input("Car / asset name", value="Honda Fit (June 2026 purchase)", key="quick_car_name")
-        q_plate = st.text_input("Plate", value="", key="quick_car_plate", placeholder="e.g. A 940 BDL")
-        if st.button("Save this purchase + 3 payments", type="primary", key="quick_car_save"):
-            execute(
-                """INSERT INTO assets
-                   (asset_name, asset_type, purchase_date, total_cost, amount_paid, monthly_instalment, plate, notes)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (q_name.strip() or "Vehicle purchase June 2026", "Vehicle", "2026-06-04",
-                 30000.0, 30000.0, 10000.0, q_plate.strip(),
-                 "Bought after selling old car. Balance paid in 3 instalments."),
-            )
-            # Get last id
-            last = query_df("SELECT id FROM assets ORDER BY id DESC LIMIT 1")
-            if last is not None and not last.empty:
-                aid = int(last.iloc[0]["id"])
-                for d, a in [("2026-06-12", 10000.0), ("2026-06-25", 10000.0), ("2026-07-25", 10000.0)]:
-                    try:
-                        execute(
-                            "INSERT INTO asset_payments (asset_id, pay_date, amount, notes) VALUES (?,?,?,?)",
-                            (aid, d, a, "Instalment"),
-                        )
-                    except Exception:
-                        pass
-                # Also put instalment totals on Fixed for June / July if empty
-                for mon, amt in [("June 2026", 20000.0), ("July 2026", 10000.0)]:
-                    me = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (mon,))
-                    if me is None or me.empty:
-                        try:
-                            execute(
-                                "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                                (mon, 0, 0, 0, 0, 0, 0, amt, 0, "Vehicle instalment auto from asset"),
-                            )
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            cur = float(me.iloc[0].get("vehicle_instalment") or 0)
-                            if cur <= 0:
-                                execute(
-                                    "UPDATE monthly_expenses SET vehicle_instalment = ? WHERE expense_month = ?",
-                                    (amt, mon),
-                                )
-                        except Exception:
-                            pass
-            st.success("Car purchase and 3 payments saved. June M20,000 + July M10,000 linked.")
-            st.rerun()
-
-        month_labels_a = ["All months"] + [label for _, _, label in FY_MONTHS]
-        sel_asset_month = st.selectbox("Month filter", month_labels_a, key="assets_month_filter")
-
-        try:
-            adf = query_df(
-                "SELECT id, asset_name, asset_type, purchase_date, total_cost, amount_paid, monthly_instalment, plate, notes "
-                "FROM assets ORDER BY id DESC"
-            )
-        except Exception:
-            adf = pd.DataFrame()
-        if adf is None or adf.empty:
-            st.info("No assets recorded yet.")
-        else:
-            if sel_asset_month != "All months":
-                adf["_d"] = pd.to_datetime(adf["purchase_date"], errors="coerce")
-                adf = adf[adf["_d"].apply(
-                    lambda x: next((lab for y, m, lab in FY_MONTHS if pd.notna(x) and x.year == y and x.month == m), "") == sel_asset_month
-                )]
-                adf = adf.drop(columns=["_d"], errors="ignore")
-            if adf.empty:
-                st.info("No assets for this month.")
-            else:
-                adf["Balance"] = pd.to_numeric(adf["total_cost"], errors="coerce").fillna(0) - pd.to_numeric(adf["amount_paid"], errors="coerce").fillna(0)
-                st.dataframe(adf.drop(columns=["id"], errors="ignore"), use_container_width=True, hide_index=True)
-                st.metric("Total assets cost", money(pd.to_numeric(adf["total_cost"], errors="coerce").fillna(0).sum()))
-                st.metric("Total still owing", money(adf["Balance"].clip(lower=0).sum()))
-
-                st.markdown("**Edit / delete asset**")
-                labels = [f"#{int(r['id'])} · {r['asset_name']} · {r.get('purchase_date','')}" for _, r in adf.iterrows()]
-                pick = st.selectbox("Select asset", range(len(labels)), format_func=lambda i: labels[i], key="asset_edit_sel")
-                row = adf.iloc[pick]
-                e_name = st.text_input("Asset name", value=str(row.get("asset_name") or ""), key="asset_e_name")
-                e_total = st.number_input("Total cost", value=float(row.get("total_cost") or 0), min_value=0.0, format="%.2f", key="asset_e_total")
-                e_paid = st.number_input("Amount paid", value=float(row.get("amount_paid") or 0), min_value=0.0, format="%.2f", key="asset_e_paid")
-                e_inst = st.number_input("Monthly instalment", value=float(row.get("monthly_instalment") or 0), min_value=0.0, format="%.2f", key="asset_e_inst")
-                e_plate = st.text_input("Plate", value=str(row.get("plate") or ""), key="asset_e_plate")
-                e_notes = st.text_input("Notes", value=str(row.get("notes") or ""), key="asset_e_notes")
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    if st.button("Save asset edits", type="primary", use_container_width=True, key="asset_save"):
-                        execute(
-                            "UPDATE assets SET asset_name=?, total_cost=?, amount_paid=?, monthly_instalment=?, plate=?, notes=? WHERE id=?",
-                            (e_name, e_total, e_paid, e_inst, e_plate, e_notes, int(row["id"])),
-                        )
-                        st.success("Asset updated")
-                        st.rerun()
-                with c2:
-                    if st.button("Delete asset", use_container_width=True, key="asset_del"):
-                        execute("DELETE FROM assets WHERE id=?", (int(row["id"]),))
-                        st.success("Asset deleted")
-                        st.rerun()
-                with c3:
-                    pay_s = st.text_input("Add payment (M)", key="asset_pay_amt", placeholder="0.00")
-                    if st.button("Apply payment", use_container_width=True, key="asset_pay_btn"):
-                        amt = parse_amount(pay_s)
-                        new_paid = float(row.get("amount_paid") or 0) + amt
-                        execute("UPDATE assets SET amount_paid=? WHERE id=?", (new_paid, int(row["id"])))
-                        try:
-                            execute(
-                                "INSERT INTO asset_payments (asset_id, pay_date, amount, notes) VALUES (?,?,?,?)",
-                                (int(row["id"]), date.today().isoformat(), amt, "Instalment payment"),
-                            )
-                        except Exception:
-                            pass
-                        st.success(f"Payment applied: {money(new_paid)}")
-                        st.rerun()
-
-                st.markdown("**Payment history**")
-                try:
-                    pays = query_df(
-                        "SELECT pay_date, amount, notes FROM asset_payments WHERE asset_id = ? ORDER BY pay_date",
-                        (int(row["id"]),),
-                    )
-                    if pays is not None and not pays.empty:
-                        st.dataframe(pays, use_container_width=True, hide_index=True)
-                    else:
-                        st.caption("No payment history yet for this asset.")
-                except Exception:
-                    st.caption("Payment history will appear after the first logged payment.")
 
     with tab_inc:
         st.markdown("**Log a fine, accident, damage or police cost**")
