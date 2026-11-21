@@ -808,8 +808,48 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Watermark disabled (kept as no-op so PDF layout stays clean)."""
-    return
+    """Tiled MAXY TAXI + car pin watermark across the full A4 page."""
+    canvas.saveState()
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = None
+    for name in ("logo_pin.png", "watermark_taxi.png", "logo_clean.png"):
+        pth = os.path.join(base, name)
+        if os.path.exists(pth):
+            path = pth
+            break
+    page_w, page_h = A4
+    tile_w, tile_h = 40*mm, 46*mm
+    if path:
+        x = 6*mm
+        while x < page_w - 4*mm:
+            y = 14*mm
+            while y < page_h - 12*mm:
+                try:
+                    canvas.drawImage(
+                        path, x, y, width=tile_w, height=tile_h,
+                        mask="auto", preserveAspectRatio=True,
+                    )
+                except Exception:
+                    pass
+                y += tile_h + 16*mm
+            x += tile_w + 20*mm
+    # Text rows: MAXY TAXI
+    canvas.setFillColor(colors.HexColor("#bbbbbb"))
+    try:
+        canvas.setFillAlpha(0.16)
+    except Exception:
+        pass
+    canvas.setFont("Helvetica-Bold", 12)
+    row = 18*mm
+    while row < page_h:
+        canvas.saveState()
+        canvas.translate(8*mm, row)
+        canvas.rotate(30)
+        for i in range(5):
+            canvas.drawString(i * 50*mm, 0, "MAXY TAXI")
+        canvas.restoreState()
+        row += 26*mm
+    canvas.restoreState()
 
 
 def generate_invoice_pdf(invoice, client=None):
@@ -1817,28 +1857,56 @@ def page_records():
                     weekday = ""
             count = len(gdf)
 
+            # Line 1 — date
             st.markdown(f"""
             <div style="border: 2px solid {color}; border-radius: 10px; padding: 10px 12px;
-                        margin-bottom: 12px; background: #141414;">
-                <p style="color:{color}; font-weight:700; margin:0 0 6px 0; font-size:13px;">
+                        margin-bottom: 8px; background: #141414;">
+                <p style="color:{color}; font-weight:700; margin:0; font-size:13px;">
                     📅 {day_str} &nbsp;·&nbsp; {weekday} &nbsp;·&nbsp; {count} vehicle{"s" if count != 1 else ""}
                 </p>
             </div>
             """, unsafe_allow_html=True)
 
-            show_cols = ['plate', 'driver_name', 'duty', 'trips', 'cash_collected',
-                         'fuel_cost', 'fuel_topup', 'driver_compensation', 'airtime',
-                         'credits']
+            # Line 2 — driver / airtime / compensation (bold green border)
+            staff_bits = []
+            for _, r in gdf.iterrows():
+                reg = str(r.get("plate") or r.get("vehicle_name") or "")
+                drv = str(r.get("driver_name") or "—")
+                air = float(r.get("airtime") or 0)
+                dcomp = float(r.get("driver_compensation") or 0)
+                staff_bits.append(
+                    f"<span style='margin-right:14px;'><b>{reg}</b> · {drv} · "
+                    f"Airtime {money(air)} · Comp {money(dcomp)}</span>"
+                )
+            st.markdown(f"""
+            <div style="border: 3px solid #2ecc71; border-radius: 10px; padding: 10px 12px;
+                        margin-bottom: 8px; background: #0f1a12;">
+                <p style="color:#2ecc71; font-weight:800; margin:0 0 6px 0; font-size:12px;">
+                    DRIVER · AIRTIME · COMPENSATION
+                </p>
+                <p style="color:#ddd; margin:0; font-size:12px; line-height:1.6;">
+                    {''.join(staff_bits)}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Line 3 — cash, petrol, trips, credits
+            show_cols = ['plate', 'duty', 'trips', 'cash_collected',
+                         'fuel_cost', 'fuel_topup', 'credits']
             display = gdf[[c for c in show_cols if c in gdf.columns]].copy()
-            display = display.rename(columns={"plate": "Registration number"})
+            display = display.rename(columns={
+                "plate": "Registration number",
+                "cash_collected": "Cash",
+                "fuel_cost": "Petrol",
+                "fuel_topup": "Fuel top-up",
+                "credits": "Credits",
+            })
             st.dataframe(
                 display.style.format({
-                    'cash_collected': 'M {:,.0f}',
-                    'fuel_cost': 'M {:,.0f}',
-                    'fuel_topup': 'M {:,.0f}',
-                    'driver_compensation': 'M {:,.0f}',
-                    'airtime': 'M {:,.0f}',
-                    'credits': 'M {:,.0f}',
+                    'Cash': 'M {:,.0f}',
+                    'Petrol': 'M {:,.0f}',
+                    'Fuel top-up': 'M {:,.0f}',
+                    'Credits': 'M {:,.0f}',
                 }),
                 use_container_width=True,
                 hide_index=True
@@ -2069,11 +2137,94 @@ def page_clients():
                 else:
                     st.error("Name is required.")
 
+    # Contract clients (credits) + directory — paid / outstanding next to name
+    st.subheader("Payment status by company")
+    inv = query_df("SELECT client_name, amount, amount_paid, status FROM invoices")
+    # Known monthly credit clients
+    credit_names = ["Alliance", "Lehae", "World Vision", "Waleslink", "LNLVIP"]
+    status_rows = []
+    for cname in credit_names:
+        if inv is not None and not inv.empty:
+            sub = inv[inv["client_name"].astype(str).str.contains(cname, case=False, na=False)]
+        else:
+            sub = pd.DataFrame()
+        if sub.empty:
+            status_rows.append({"Company": cname, "Status": "No invoice", "Invoiced": 0, "Paid": 0, "Outstanding": 0})
+        else:
+            total = float(pd.to_numeric(sub["amount"], errors="coerce").fillna(0).sum())
+            paid = float(pd.to_numeric(sub["amount_paid"], errors="coerce").fillna(0).sum())
+            outstanding = max(0.0, total - paid)
+            if outstanding <= 0.01 and total > 0:
+                st_label = "✅ Paid"
+            elif paid > 0:
+                st_label = "🟠 Partial"
+            else:
+                st_label = "🔴 Outstanding"
+            status_rows.append({
+                "Company": cname,
+                "Status": st_label,
+                "Invoiced": total,
+                "Paid": paid,
+                "Outstanding": outstanding,
+            })
+
+    # Also any other invoice clients
+    if inv is not None and not inv.empty:
+        for cname in sorted(inv["client_name"].dropna().unique().tolist()):
+            if any(c.lower() in str(cname).lower() for c in credit_names):
+                continue
+            sub = inv[inv["client_name"] == cname]
+            total = float(pd.to_numeric(sub["amount"], errors="coerce").fillna(0).sum())
+            paid = float(pd.to_numeric(sub["amount_paid"], errors="coerce").fillna(0).sum())
+            outstanding = max(0.0, total - paid)
+            if outstanding <= 0.01 and total > 0:
+                st_label = "✅ Paid"
+            elif paid > 0:
+                st_label = "🟠 Partial"
+            else:
+                st_label = "🔴 Outstanding"
+            status_rows.append({
+                "Company": cname,
+                "Status": st_label,
+                "Invoiced": total,
+                "Paid": paid,
+                "Outstanding": outstanding,
+            })
+
+    if status_rows:
+        for r in status_rows:
+            st.markdown(
+                f"**{r['Company']}** — {r['Status']} &nbsp;·&nbsp; "
+                f"Invoiced {money(r['Invoiced'])} &nbsp;·&nbsp; "
+                f"Paid {money(r['Paid'])} &nbsp;·&nbsp; "
+                f"Outstanding **{money(r['Outstanding'])}**"
+            )
+
     clients = query_df("SELECT * FROM clients ORDER BY name")
     if clients.empty:
         st.info("No clients saved yet. Add one above.")
     else:
-        st.dataframe(clients[['id', 'name', 'contact_person', 'phone', 'email', 'tin']], use_container_width=True, hide_index=True)
+        # Attach payment status to directory names
+        def _client_status(name):
+            if inv is None or inv.empty:
+                return "—"
+            sub = inv[inv["client_name"].astype(str).str.lower() == str(name).lower()]
+            if sub.empty:
+                sub = inv[inv["client_name"].astype(str).str.contains(str(name), case=False, na=False)]
+            if sub.empty:
+                return "No invoice"
+            total = float(pd.to_numeric(sub["amount"], errors="coerce").fillna(0).sum())
+            paid = float(pd.to_numeric(sub["amount_paid"], errors="coerce").fillna(0).sum())
+            outstanding = total - paid
+            if outstanding <= 0.01 and total > 0:
+                return "✅ Paid"
+            if paid > 0:
+                return "🟠 Partial"
+            return "🔴 Outstanding"
+
+        cshow = clients[['name', 'contact_person', 'phone', 'email', 'tin']].copy()
+        cshow["Payment status"] = cshow["name"].apply(_client_status)
+        st.dataframe(cshow, use_container_width=True, hide_index=True)
 
 def page_quotations():
     st.header("Quotations")
@@ -2439,20 +2590,23 @@ def page_monthly_expenses():
     st.header("Monthly Expenses")
     st.caption("Fixed costs · incidents & fines · parts & workshop")
 
-    tab_fixed, tab_inc, tab_parts = st.tabs(["Fixed monthly", "Incidents & fines", "Parts & workshop"])
+    tab_fixed, tab_assets, tab_inc, tab_parts = st.tabs(
+        ["Fixed monthly", "Assets (vehicles)", "Incidents & fines", "Parts & workshop"]
+    )
 
     with tab_fixed:
         month_labels = [label for _, _, label in FY_MONTHS]
         sel_month = st.selectbox("Month", month_labels, key="me_month")
 
-        # Ensure stationery column exists
-        try:
-            execute("ALTER TABLE monthly_expenses ADD COLUMN stationery DOUBLE PRECISION DEFAULT 0")
-        except Exception:
+        # Ensure extra columns exist
+        for col in ("stationery", "vehicle_instalment"):
             try:
-                execute("ALTER TABLE monthly_expenses ADD COLUMN stationery REAL DEFAULT 0")
+                execute(f"ALTER TABLE monthly_expenses ADD COLUMN {col} DOUBLE PRECISION DEFAULT 0")
             except Exception:
-                pass
+                try:
+                    execute(f"ALTER TABLE monthly_expenses ADD COLUMN {col} REAL DEFAULT 0")
+                except Exception:
+                    pass
 
         existing = query_df("SELECT * FROM monthly_expenses WHERE expense_month = ?", (sel_month,))
         if not existing.empty:
@@ -2462,10 +2616,11 @@ def page_monthly_expenses():
             sal0 = float(row.get("salaries") or 0)
             wash0 = float(row.get("car_wash") or 0)
             stat0 = float(row.get("stationery") or 0)
+            inst0 = float(row.get("vehicle_instalment") or 0)
             misc0 = float(row.get("miscellaneous") or 0)
             notes0 = str(row.get("notes") or "")
         else:
-            rent0 = wifi0 = sal0 = wash0 = stat0 = misc0 = 0.0
+            rent0 = wifi0 = sal0 = wash0 = stat0 = inst0 = misc0 = 0.0
             notes0 = ""
 
         df = prepare_records_df()
@@ -2485,6 +2640,12 @@ def page_monthly_expenses():
         with c3:
             stat_s = st.text_input("Stationery (M)", value=format_amount(stat0) if stat0 else "", placeholder="0.00")
             misc_s = st.text_input("Miscellaneous (M)", value=format_amount(misc0) if misc0 else "", placeholder="0.00")
+        inst_s = st.text_input(
+            "Vehicle instalment / car purchase balance (M)",
+            value=format_amount(inst0) if inst0 else "",
+            placeholder="e.g. monthly balance on car bought after trade-in",
+            help="Asset: vehicle bought on instalment (not paid in full at once)",
+        )
         notes = st.text_input("Notes", value=notes0)
 
         rent = parse_amount(rent_s)
@@ -2492,8 +2653,9 @@ def page_monthly_expenses():
         salaries = parse_amount(sal_s)
         car_wash = parse_amount(wash_s)
         stationery = parse_amount(stat_s)
+        vehicle_instalment = parse_amount(inst_s)
         miscellaneous = parse_amount(misc_s)
-        fixed_total = rent + wifi + salaries + car_wash + stationery + miscellaneous
+        fixed_total = rent + wifi + salaries + car_wash + stationery + vehicle_instalment + miscellaneous
         staff_total = driver_comp_total + salaries
 
         m1, m2, m3 = st.columns(3)
@@ -2504,23 +2666,116 @@ def page_monthly_expenses():
         if st.button("Save fixed costs", type="primary", use_container_width=True):
             if not existing.empty:
                 execute(
-                    "UPDATE monthly_expenses SET rent=?, wifi=?, salaries=?, car_wash=?, stationery=?, miscellaneous=?, notes=?, maintenance=0 WHERE expense_month=?",
-                    (rent, wifi, salaries, car_wash, stationery, miscellaneous, notes, sel_month),
+                    "UPDATE monthly_expenses SET rent=?, wifi=?, salaries=?, car_wash=?, stationery=?, vehicle_instalment=?, miscellaneous=?, notes=?, maintenance=0 WHERE expense_month=?",
+                    (rent, wifi, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes, sel_month),
                 )
             else:
                 execute(
-                    "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, stationery, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?,?)",
-                    (sel_month, rent, wifi, 0, salaries, car_wash, stationery, miscellaneous, notes),
+                    "INSERT INTO monthly_expenses (expense_month, rent, wifi, maintenance, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (sel_month, rent, wifi, 0, salaries, car_wash, stationery, vehicle_instalment, miscellaneous, notes),
                 )
             st.success(f"Saved fixed costs for {sel_month}")
             st.rerun()
 
         all_me = query_df(
-            "SELECT expense_month, rent, wifi, salaries, car_wash, stationery, miscellaneous "
+            "SELECT expense_month, rent, wifi, salaries, car_wash, stationery, vehicle_instalment, miscellaneous "
             "FROM monthly_expenses ORDER BY expense_month"
         )
         if not all_me.empty:
             st.dataframe(all_me, use_container_width=True, hide_index=True)
+
+
+    with tab_assets:
+        st.markdown("**Record assets you bought** (e.g. a car paid in instalments after selling an old one)")
+        st.caption("Tracks purchase cost, monthly instalment paid, and remaining balance")
+        ensure_extra_tables()
+        # Ensure assets table
+        try:
+            execute("""
+                CREATE TABLE IF NOT EXISTS assets (
+                    id SERIAL PRIMARY KEY,
+                    asset_name TEXT,
+                    asset_type TEXT,
+                    purchase_date TEXT,
+                    total_cost DOUBLE PRECISION DEFAULT 0,
+                    amount_paid DOUBLE PRECISION DEFAULT 0,
+                    monthly_instalment DOUBLE PRECISION DEFAULT 0,
+                    plate TEXT,
+                    notes TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        except Exception:
+            try:
+                execute("""
+                    CREATE TABLE IF NOT EXISTS assets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        asset_name TEXT,
+                        asset_type TEXT,
+                        purchase_date TEXT,
+                        total_cost REAL DEFAULT 0,
+                        amount_paid REAL DEFAULT 0,
+                        monthly_instalment REAL DEFAULT 0,
+                        plate TEXT,
+                        notes TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+            except Exception:
+                pass
+
+        with st.form("asset_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                aname = st.text_input("Asset name *", placeholder="e.g. Honda Fit A 940 BDL")
+                atype = st.selectbox("Type", ["Vehicle", "Equipment", "Other"])
+                pdate = st.date_input("Purchase date", value=date.today())
+            with c2:
+                total_s = st.text_input("Total cost (M)", placeholder="0.00")
+                paid_s = st.text_input("Amount already paid (M)", placeholder="0.00")
+                inst_s = st.text_input("Monthly instalment (M)", placeholder="0.00")
+            plate = st.text_input("Registration / plate (if vehicle)", placeholder="A 940 BDL")
+            notes = st.text_input("Notes", placeholder="Trade-in, seller, balance terms...")
+            if st.form_submit_button("Save asset", type="primary"):
+                if not aname.strip():
+                    st.error("Asset name is required")
+                else:
+                    execute(
+                        """INSERT INTO assets
+                           (asset_name, asset_type, purchase_date, total_cost, amount_paid, monthly_instalment, plate, notes)
+                           VALUES (?,?,?,?,?,?,?,?)""",
+                        (aname.strip(), atype, pdate.isoformat(), parse_amount(total_s),
+                         parse_amount(paid_s), parse_amount(inst_s), plate.strip(), notes),
+                    )
+                    st.success("Asset saved")
+                    st.rerun()
+
+        try:
+            adf = query_df(
+                "SELECT id, asset_name, asset_type, purchase_date, total_cost, amount_paid, monthly_instalment, plate, notes "
+                "FROM assets ORDER BY id DESC"
+            )
+        except Exception:
+            adf = pd.DataFrame()
+        if adf is None or adf.empty:
+            st.info("No assets recorded yet.")
+        else:
+            adf["Balance"] = pd.to_numeric(adf["total_cost"], errors="coerce").fillna(0) - pd.to_numeric(adf["amount_paid"], errors="coerce").fillna(0)
+            st.dataframe(adf.drop(columns=["id"], errors="ignore"), use_container_width=True, hide_index=True)
+            st.metric("Total assets cost", money(pd.to_numeric(adf["total_cost"], errors="coerce").fillna(0).sum()))
+            st.metric("Total still owing", money(adf["Balance"].clip(lower=0).sum()))
+            # Record a payment this month toward an asset
+            st.markdown("**Record instalment payment**")
+            labels = [f"#{int(r['id'])} · {r['asset_name']} · owing {money(max(0, float(r['total_cost'] or 0)-float(r['amount_paid'] or 0)))}" for _, r in adf.iterrows()]
+            pick = st.selectbox("Asset", range(len(labels)), format_func=lambda i: labels[i], key="asset_pay_sel")
+            pay_s = st.text_input("Payment amount (M)", key="asset_pay_amt", placeholder="0.00")
+            if st.button("Apply payment", type="primary", key="asset_pay_btn"):
+                row = adf.iloc[pick]
+                new_paid = float(row.get("amount_paid") or 0) + parse_amount(pay_s)
+                execute("UPDATE assets SET amount_paid=? WHERE id=?", (new_paid, int(row["id"])))
+                # Also log under this month's vehicle_instalment if linked
+                st.success(f"Payment applied. New amount paid: {money(new_paid)}")
+                st.rerun()
 
     with tab_inc:
         st.markdown("**Log a fine, accident, damage or police cost**")
@@ -2738,7 +2993,7 @@ def _period_expense_breakdown(df_slice, month_label=None):
             me = query_df("SELECT * FROM monthly_expenses")
         if me is not None and not me.empty:
             for _, r in me.iterrows():
-                for k in ["rent", "wifi", "car_wash", "stationery", "miscellaneous", "maintenance"]:
+                for k in ["rent", "wifi", "car_wash", "stationery", "miscellaneous", "maintenance", "vehicle_instalment"]:
                     fixed += float(r.get(k) or 0)
                 salaries += float(r.get("salaries") or 0)
     except Exception:
@@ -2924,6 +3179,27 @@ def page_weekly_summary():
         if petrol_p:
             st.caption(f"Lesotho Petrol 95 that month: **M{petrol_p:.2f}/L**")
 
+
+        # Per car breakdown + colourful bar chart
+        st.subheader("Per vehicle")
+        if not mdf.empty:
+            mdf2 = mdf.copy()
+            mdf2["reg"] = mdf2.apply(_plate_label, axis=1)
+            byc = mdf2.groupby("reg").agg({
+                "cash_collected": "sum", "credits": "sum",
+                "fuel_cost": "sum", "fuel_topup": "sum",
+                "driver_compensation": "sum", "airtime": "sum", "trips": "sum",
+            }).reset_index().rename(columns={"reg": "Registration"})
+            byc["Revenue"] = byc["cash_collected"] + byc["credits"]
+            byc["Expenses"] = byc["fuel_cost"] + byc["fuel_topup"] + byc["driver_compensation"] + byc["airtime"]
+            byc["Profit"] = byc["Revenue"] - byc["Expenses"]
+            st.dataframe(byc, use_container_width=True, hide_index=True)
+            st.markdown("**Colourful profit chart (this month)**")
+            st.bar_chart(byc.set_index("Registration")[["Profit"]], color="#f5a623", use_container_width=True)
+            st.bar_chart(byc.set_index("Registration")[["Revenue", "Expenses", "Profit"]], use_container_width=True)
+        else:
+            st.caption("No daily records for this month.")
+
     with tab_all:
         st.caption("Full financial year 2026–2027")
         t = _period_expense_breakdown(df if not df.empty else pd.DataFrame(), month_label="All")
@@ -3029,6 +3305,14 @@ def page_profit():
     byv = byv.sort_values("Profit", ascending=False)
     st.dataframe(byv, use_container_width=True, hide_index=True)
     st.metric("Fleet profit (period)", money(byv["Profit"].sum()))
+
+    st.subheader("Profit bar chart (per vehicle)")
+    chart_df = byv[["Registration", "Profit"]].copy()
+    chart_df = chart_df.set_index("Registration")
+    st.bar_chart(chart_df, color="#f5a623", use_container_width=True)
+    # Colourful multi-series: Revenue vs Expenses vs Profit
+    multi = byv[["Registration", "Revenue", "Expenses", "Profit"]].set_index("Registration")
+    st.bar_chart(multi, use_container_width=True)
 
 
 def page_incidents():
