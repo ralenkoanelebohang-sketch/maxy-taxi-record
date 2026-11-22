@@ -812,47 +812,40 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Tiled MAXY TAXI + car pin watermark across the full A4 page."""
+    """Large centred logo watermark ~12% opacity (documents)."""
     canvas.saveState()
     base = os.path.dirname(os.path.abspath(__file__))
     path = None
-    for name in ("logo_pin.png", "watermark_taxi.png", "logo_clean.png"):
+    for name in ("logo_clean.png", "logo_pin.png", "watermark_taxi.png", "logo_transparent.png"):
         pth = os.path.join(base, name)
         if os.path.exists(pth):
             path = pth
             break
     page_w, page_h = A4
-    tile_w, tile_h = 40*mm, 46*mm
     if path:
-        x = 6*mm
-        while x < page_w - 4*mm:
-            y = 14*mm
-            while y < page_h - 12*mm:
-                try:
-                    canvas.drawImage(
-                        path, x, y, width=tile_w, height=tile_h,
-                        mask="auto", preserveAspectRatio=True,
-                    )
-                except Exception:
-                    pass
-                y += tile_h + 16*mm
-            x += tile_w + 20*mm
-    # Text rows: MAXY TAXI
-    canvas.setFillColor(colors.HexColor("#bbbbbb"))
+        try:
+            # Large, centred
+            w, h = 140*mm, 90*mm
+            x = (page_w - w) / 2.0
+            y = (page_h - h) / 2.0
+            try:
+                canvas.setFillAlpha(0.12)
+            except Exception:
+                pass
+            canvas.drawImage(
+                path, x, y, width=w, height=h,
+                mask="auto", preserveAspectRatio=True,
+            )
+        except Exception:
+            pass
+    # Soft brand text under logo
     try:
-        canvas.setFillAlpha(0.16)
+        canvas.setFillAlpha(0.10)
     except Exception:
         pass
-    canvas.setFont("Helvetica-Bold", 12)
-    row = 18*mm
-    while row < page_h:
-        canvas.saveState()
-        canvas.translate(8*mm, row)
-        canvas.rotate(30)
-        for i in range(5):
-            canvas.drawString(i * 50*mm, 0, "MAXY TAXI")
-        canvas.restoreState()
-        row += 26*mm
+    canvas.setFillColor(colors.HexColor("#888888"))
+    canvas.setFont("Helvetica-Bold", 28)
+    canvas.drawCentredString(page_w / 2.0, page_h / 2.0 - 55*mm, "MAXY TAXI")
     canvas.restoreState()
 
 
@@ -1126,25 +1119,26 @@ def generate_quotation_pdf(quote, client=None):
 
 
 def _pdf_line_table_style():
-    """Gold header, ~5-line body feel, no grid lines; soft total row only."""
+    """Cream header + thin grey grid on all cells (Calibri-like Helvetica)."""
+    grey = colors.HexColor("#b0b0b0")
+    cream = colors.HexColor("#f5f0e6")
     return TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f5a623")),
+        ("BACKGROUND", (0, 0), (-1, 0), cream),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
         ("ALIGN", (1, 0), (1, -1), "CENTER"),
         ("ALIGN", (2, 0), (2, -1), "RIGHT"),
         ("BACKGROUND", (0, 1), (-1, -2), colors.white),
-        ("BACKGROUND", (1, -1), (-1, -1), colors.HexColor("#eef7fc")),
-        ("LINEABOVE", (0, -1), (-1, -1), 1.0, colors.HexColor("#f5a623")),
-        ("FONTNAME", (1, -1), (-1, -1), "Helvetica-Bold"),
-        ("TOPPADDING", (0, 0), (-1, 0), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
-        ("TOPPADDING", (0, 1), (-1, -1), 10),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 10),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#faf8f4")),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.4, grey),
+        ("BOX", (0, 0), (-1, -1), 0.6, grey),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        # no BOX / no cell grid lines
     ])
 
 
@@ -1882,49 +1876,29 @@ def page_records():
             </div>
             """, unsafe_allow_html=True)
 
-            # Line 2 — driver / airtime / compensation (bold green border)
-            staff_bits = []
-            for _, r in gdf.iterrows():
-                reg = str(r.get("plate") or r.get("vehicle_name") or "")
-                drv = str(r.get("driver_name") or "—")
-                air = float(r.get("airtime") or 0)
-                dcomp = float(r.get("driver_compensation") or 0)
-                staff_bits.append(
-                    f"<span style='margin-right:14px;'><b>{reg}</b> · {drv} · "
-                    f"Airtime {money(air)} · Comp {money(dcomp)}</span>"
-                )
-            st.markdown(f"""
-            <div style="border: 3px solid #2ecc71; border-radius: 10px; padding: 10px 12px;
-                        margin-bottom: 8px; background: #0f1a12;">
-                <p style="color:#2ecc71; font-weight:800; margin:0 0 6px 0; font-size:12px;">
-                    DRIVER · AIRTIME · COMPENSATION
-                </p>
-                <p style="color:#ddd; margin:0; font-size:12px; line-height:1.6;">
-                    {''.join(staff_bits)}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Line 3 — cash, petrol, trips, credits
-            show_cols = ['plate', 'duty', 'trips', 'cash_collected',
-                         'fuel_cost', 'fuel_topup', 'credits']
+            # Single stable table (no green box) — columns fixed, no horizontal jump
+            show_cols = ['plate', 'driver_name', 'duty', 'trips', 'cash_collected',
+                         'fuel_cost', 'fuel_topup', 'driver_compensation', 'airtime', 'credits']
             display = gdf[[c for c in show_cols if c in gdf.columns]].copy()
             display = display.rename(columns={
-                "plate": "Registration number",
+                "plate": "Reg",
+                "driver_name": "Driver",
                 "cash_collected": "Cash",
                 "fuel_cost": "Petrol",
-                "fuel_topup": "Fuel top-up",
+                "fuel_topup": "Top-up",
+                "driver_compensation": "Comp",
+                "airtime": "Airtime",
                 "credits": "Credits",
             })
+            # Format money columns as strings so mobile table stays stable
+            for col in ["Cash", "Petrol", "Top-up", "Comp", "Airtime", "Credits"]:
+                if col in display.columns:
+                    display[col] = display[col].apply(lambda x: f"M {float(x or 0):,.0f}")
             st.dataframe(
-                display.style.format({
-                    'Cash': 'M {:,.0f}',
-                    'Petrol': 'M {:,.0f}',
-                    'Fuel top-up': 'M {:,.0f}',
-                    'Credits': 'M {:,.0f}',
-                }),
+                display,
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                column_config={c: st.column_config.TextColumn(c, width="small") for c in display.columns},
             )
 
         st.markdown(
@@ -2105,30 +2079,92 @@ def page_clients():
     st.caption("Financial Year 2026 – 2027 (June to May)")
 
     # Credits for selected month
-    st.subheader("Credits Summary")
+
+    st.subheader("Credits · Paid / Unpaid")
     df = prepare_records_df()
     month_options = [label for _, _, label in FY_MONTHS]
     sel_month = st.selectbox("Select month", month_options, key="clients_month")
 
-    if df.empty:
-        st.info("No credit data yet.")
-    else:
-        y, m, _ = next((yy, mm, ll) for yy, mm, ll in FY_MONTHS if ll == sel_month)
-        mdf = df[(df['record_date'].dt.year == y) & (df['record_date'].dt.month == m)]
-        alliance = mdf['credit_alliance'].sum() if not mdf.empty else 0
-        lehae = mdf['credit_lehae'].sum() if not mdf.empty else 0
-        wv = mdf['credit_worldvision'].sum() if not mdf.empty else 0
-        wales = mdf['credit_waleslink'].sum() if not mdf.empty else 0
-        lnl = mdf['credit_lnlvip'].sum() if not mdf.empty else 0
+    try:
+        execute("""
+            CREATE TABLE IF NOT EXISTS client_pay_status (
+                company_name TEXT PRIMARY KEY,
+                status TEXT DEFAULT 'Unpaid'
+            )
+        """)
+    except Exception:
+        pass
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Alliance", money(alliance))
-        c2.metric("Lehae", money(lehae))
-        c3.metric("World Vision", money(wv))
-        c4, c5, c6 = st.columns(3)
-        c4.metric("Waleslink", money(wales))
-        c5.metric("LNLVIP", money(lnl))
-        c6.metric("Total Credits", money(alliance + lehae + wv + wales + lnl))
+    # Amounts for selected month
+    amounts = {
+        "Alliance": 0.0, "Lehae": 0.0, "World Vision": 0.0,
+        "Waleslink": 0.0, "LNLVIP": 0.0,
+    }
+    if df is not None and not df.empty:
+        y, m, _ = next((yy, mm, ll) for yy, mm, ll in FY_MONTHS if ll == sel_month)
+        mdf = df[(df["record_date"].dt.year == y) & (df["record_date"].dt.month == m)]
+        if not mdf.empty:
+            amounts["Alliance"] = float(mdf["credit_alliance"].sum()) if "credit_alliance" in mdf.columns else 0.0
+            amounts["Lehae"] = float(mdf["credit_lehae"].sum()) if "credit_lehae" in mdf.columns else 0.0
+            amounts["World Vision"] = float(mdf["credit_worldvision"].sum()) if "credit_worldvision" in mdf.columns else 0.0
+            amounts["Waleslink"] = float(mdf["credit_waleslink"].sum()) if "credit_waleslink" in mdf.columns else 0.0
+            amounts["LNLVIP"] = float(mdf["credit_lnlvip"].sum()) if "credit_lnlvip" in mdf.columns else 0.0
+
+    status_df = query_df("SELECT company_name, status FROM client_pay_status")
+    status_map = {}
+    if status_df is not None and not status_df.empty:
+        for _, r in status_df.iterrows():
+            status_map[str(r["company_name"])] = str(r["status"] or "Unpaid")
+
+    total = 0.0
+    for cname, amt in amounts.items():
+        total += amt
+        cur = status_map.get(cname, "Unpaid")
+        is_paid = cur.lower() == "paid"
+        label = "Paid" if is_paid else "Unpaid"
+        border = "#2ecc71" if is_paid else "#e74c3c"
+        st.markdown(
+            f"""
+            <div style="border-left:5px solid {border}; background:#141414; border-radius:10px;
+                        padding:14px 16px; margin:10px 0;">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <p style="color:#aaa;font-size:11px;letter-spacing:1px;margin:0 0 4px 0;text-transform:uppercase;">{cname}</p>
+                  <p style="color:#ffffff;font-weight:700;font-size:22px;margin:0;">{money(amt)}</p>
+                </div>
+                <span style="color:{border};font-weight:800;font-size:14px;">{label}</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        btn = f"Mark {cname} as {'Unpaid' if is_paid else 'Paid'}"
+        if st.button(btn, key=f"pay_toggle_{cname}", use_container_width=True):
+            new_st = "Unpaid" if is_paid else "Paid"
+            try:
+                execute(
+                    "INSERT INTO client_pay_status (company_name, status) VALUES (?, ?) "
+                    "ON CONFLICT (company_name) DO UPDATE SET status = EXCLUDED.status",
+                    (cname, new_st),
+                )
+            except Exception:
+                existing = query_df("SELECT company_name FROM client_pay_status WHERE company_name = ?", (cname,))
+                if existing is not None and not existing.empty:
+                    execute("UPDATE client_pay_status SET status = ? WHERE company_name = ?", (new_st, cname))
+                else:
+                    execute("INSERT INTO client_pay_status (company_name, status) VALUES (?, ?)", (cname, new_st))
+            st.rerun()
+
+    st.markdown(
+        f"""
+        <div style="border-left:5px solid #f5a623; background:#141414; border-radius:10px;
+                    padding:14px 16px; margin:10px 0;">
+          <p style="color:#aaa;font-size:11px;letter-spacing:1px;margin:0 0 4px 0;text-transform:uppercase;">Total credits</p>
+          <p style="color:#ffffff;font-weight:800;font-size:22px;margin:0;">{money(total)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown("---")
     st.subheader("Client Directory")
@@ -2151,70 +2187,6 @@ def page_clients():
                     st.rerun()
                 else:
                     st.error("Name is required.")
-
-
-    # Simple company cards: Unpaid (red) / Paid (green) — tap to toggle
-    st.subheader("Companies")
-    try:
-        execute("""
-            CREATE TABLE IF NOT EXISTS client_pay_status (
-                company_name TEXT PRIMARY KEY,
-                status TEXT DEFAULT 'Unpaid'
-            )
-        """)
-    except Exception:
-        pass
-
-    companies = ["Alliance", "Lehae", "World Vision", "Waleslink", "LNLVIP"]
-    # Include saved clients
-    try:
-        cdf = query_df("SELECT name FROM clients ORDER BY name")
-        if cdf is not None and not cdf.empty:
-            for n in cdf["name"].dropna().tolist():
-                if n not in companies:
-                    companies.append(n)
-    except Exception:
-        pass
-
-    status_df = query_df("SELECT company_name, status FROM client_pay_status")
-    status_map = {}
-    if status_df is not None and not status_df.empty:
-        for _, r in status_df.iterrows():
-            status_map[str(r["company_name"])] = str(r["status"] or "Unpaid")
-
-    for cname in companies:
-        cur = status_map.get(cname, "Unpaid")
-        is_paid = cur.lower() == "paid"
-        label = "Paid" if is_paid else "Unpaid"
-        color = "#2ecc71" if is_paid else "#e74c3c"
-        bg = "#122016" if is_paid else "#1a1212"
-        st.markdown(
-            f"""
-            <div style="border:2px solid {color}; border-radius:10px; padding:10px 14px; margin-bottom:8px;
-                        background:{bg}; display:flex; justify-content:space-between; align-items:center;">
-              <span style="color:#fff; font-weight:700; font-size:14px;">{cname}</span>
-              <span style="color:{color}; font-weight:800; font-size:13px;">{label}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        btn_label = f"Mark {cname} as {'Unpaid' if is_paid else 'Paid'}"
-        if st.button(btn_label, key=f"pay_toggle_{cname}", use_container_width=True):
-            new_st = "Unpaid" if is_paid else "Paid"
-            try:
-                execute(
-                    "INSERT INTO client_pay_status (company_name, status) VALUES (?, ?) "
-                    "ON CONFLICT (company_name) DO UPDATE SET status = EXCLUDED.status",
-                    (cname, new_st),
-                )
-            except Exception:
-                # SQLite fallback
-                existing = query_df("SELECT company_name FROM client_pay_status WHERE company_name = ?", (cname,))
-                if existing is not None and not existing.empty:
-                    execute("UPDATE client_pay_status SET status = ? WHERE company_name = ?", (new_st, cname))
-                else:
-                    execute("INSERT INTO client_pay_status (company_name, status) VALUES (?, ?)", (cname, new_st))
-            st.rerun()
 
     clients = query_df("SELECT * FROM clients ORDER BY name")
     if clients.empty:
@@ -3082,7 +3054,7 @@ def _plot_vehicle_bars(byc, key_prefix="chart"):
 
 
 def _expense_cards_html(t):
-    """Each expense in its own red-bordered box (same style as revenue/profit cards)."""
+    """Each expense in its own red-bordered box; amounts in white."""
     items = [
         ("Petrol (fuel + top-up)", t.get("petrol", 0)),
         ("Airtime", t.get("airtime", 0)),
@@ -3093,12 +3065,9 @@ def _expense_cards_html(t):
         ("Vehicle / asset purchases", t.get("vehicle_purchases", 0)),
         ("Total expenses", t.get("expenses", 0)),
     ]
-    # subline for staff breakdown
     cards = []
     for label, val in items:
         is_total = label == "Total expenses"
-        border = "#e74c3c"
-        title_c = "#e74c3c" if not is_total else "#ff6b6b"
         weight = "800" if is_total else "700"
         sub = ""
         if label.startswith("Driver compensation"):
@@ -3108,10 +3077,10 @@ def _expense_cards_html(t):
             )
         cards.append(
             f"""
-            <div style="border-left:5px solid {border}; background:#1a1212; border-radius:10px;
+            <div style="border-left:5px solid #e74c3c; background:#141414; border-radius:10px;
                         padding:14px 16px; margin:10px 0;">
               <p style="color:#aaa;font-size:11px;letter-spacing:1px;margin:0 0 4px 0;text-transform:uppercase;">{label}</p>
-              <p style="color:{title_c};font-weight:{weight};font-size:22px;margin:0;">{money(val)}</p>
+              <p style="color:#ffffff;font-weight:{weight};font-size:22px;margin:0;">{money(val)}</p>
               {sub}
             </div>
             """
@@ -3228,7 +3197,6 @@ def page_weekly_summary():
         c1.metric("Total cash", money(t["cash"]))
         c2.metric("Credits", money(t["credits"]))
         c3.metric("Total revenue", money(t["revenue"]))
-        c4.metric("Gross profit", money(t["gross"]))
         st.markdown(_expense_cards_html(t), unsafe_allow_html=True)
         st.markdown(f"""
         <div style="border-left:5px solid #2ecc71; background:#122016; border-radius:10px; padding:14px 16px; margin:8px 0 12px 0;">
@@ -3267,7 +3235,6 @@ def page_weekly_summary():
         c1.metric("Total cash", money(t["cash"]))
         c2.metric("Credits", money(t["credits"]))
         c3.metric("Total revenue", money(t["revenue"]))
-        c4.metric("Gross profit", money(t["gross"]))
         st.markdown(_expense_cards_html(t), unsafe_allow_html=True)
         st.markdown(f"""
         <div style="border-left:5px solid #2ecc71; background:#122016; border-radius:10px; padding:14px 16px; margin:8px 0 12px 0;">
