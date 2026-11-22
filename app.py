@@ -853,7 +853,7 @@ def generate_invoice_pdf(invoice, client=None):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
                             rightMargin=12*mm, leftMargin=12*mm,
-                            topMargin=5*mm, bottomMargin=34*mm)
+                            topMargin=5*mm, bottomMargin=22*mm)
     styles = getSampleStyleSheet()
     elements = []
 
@@ -981,6 +981,7 @@ def generate_invoice_pdf(invoice, client=None):
         Paragraph(f"<b>M{total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=10)),
     ])
 
+    elements.extend(_pdf_banking_elements(styles))
     items_table = Table(items_data, colWidths=[105*mm, 28*mm, 47*mm])
     items_table.setStyle(_pdf_line_table_style())
     elements.append(items_table)
@@ -996,7 +997,7 @@ def generate_quotation_pdf(quote, client=None):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
                             rightMargin=12*mm, leftMargin=12*mm,
-                            topMargin=5*mm, bottomMargin=34*mm)
+                            topMargin=5*mm, bottomMargin=22*mm)
     styles = getSampleStyleSheet()
     elements = []
 
@@ -1102,6 +1103,7 @@ def generate_quotation_pdf(quote, client=None):
         Paragraph(f"<b>M{total_amount:,.2f}</b>", ParagraphStyle('TotR', parent=right, fontSize=10)),
     ])
 
+    elements.extend(_pdf_banking_elements(styles))
     items_table = Table(items_data, colWidths=[105*mm, 28*mm, 47*mm])
     items_table.setStyle(_pdf_line_table_style())
     elements.append(items_table)
@@ -1119,53 +1121,108 @@ def generate_quotation_pdf(quote, client=None):
 
 
 def _pdf_line_table_style():
-    """Cream header + thin grey grid on all cells (Calibri-like Helvetica)."""
-    grey = colors.HexColor("#b0b0b0")
-    cream = colors.HexColor("#f5f0e6")
+    """Professional table: gold header, no cell grid lines, soft total row."""
+    gold = colors.HexColor("#f5a623")
     return TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), cream),
+        ("BACKGROUND", (0, 0), (-1, 0), gold),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (1, 0), (1, -1), "CENTER"),
         ("ALIGN", (2, 0), (2, -1), "RIGHT"),
         ("BACKGROUND", (0, 1), (-1, -2), colors.white),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#faf8f4")),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("GRID", (0, 0), (-1, -1), 0.4, grey),
-        ("BOX", (0, 0), (-1, -1), 0.6, grey),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("BACKGROUND", (1, -1), (-1, -1), colors.HexColor("#fff8e6")),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.0, gold),
+        ("FONTNAME", (1, -1), (-1, -1), "Helvetica-Bold"),
+        ("TOPPADDING", (0, 0), (-1, 0), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 9),
+        ("TOPPADDING", (0, 1), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        # intentionally no GRID / no BOX
     ])
 
 
+def _pdf_banking_elements(styles=None):
+    """Yellow left-border banking card — placed above description table."""
+    styles = styles or getSampleStyleSheet()
+    label = ParagraphStyle(
+        "BankLbl", parent=styles["Normal"], fontSize=8, leading=11,
+        textColor=colors.HexColor("#888888"), spaceAfter=1,
+    )
+    body = ParagraphStyle(
+        "BankBody", parent=styles["Normal"], fontSize=9, leading=12,
+        textColor=colors.HexColor("#1a1a1a"),
+    )
+    title = ParagraphStyle(
+        "BankTitle", parent=styles["Normal"], fontSize=9, leading=12,
+        textColor=colors.HexColor("#1a1a1a"), fontName="Helvetica-Bold",
+    )
+    tin = BUSINESS_TIN or "—"
+    inner = [
+        [Paragraph("BANKING DETAILS", title)],
+        [Paragraph("Postbank", body)],
+        [Paragraph("Account no: <b>1017866800015</b>  ·  Branch: <b>500100</b>", body)],
+        [Paragraph(f"Account name: <b>Maxy Taxi Transport</b>  ·  TIN: <b>{tin}</b>", body)],
+    ]
+    box = Table(inner, colWidths=[180*mm])
+    box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#1a1a1a")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, 0), 8),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
+        ("TOPPADDING", (0, 1), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -2), 2),
+        ("LINEBEFORE", (0, 0), (0, -1), 3.5, colors.HexColor("#f5a623")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    # light text on dark needs white-ish body
+    body_w = ParagraphStyle(
+        "BankBodyW", parent=styles["Normal"], fontSize=9, leading=12,
+        textColor=colors.HexColor("#eeeeee"),
+    )
+    title_w = ParagraphStyle(
+        "BankTitleW", parent=styles["Normal"], fontSize=9, leading=12,
+        textColor=colors.HexColor("#f5a623"), fontName="Helvetica-Bold",
+    )
+    inner2 = [
+        [Paragraph("BANKING DETAILS", title_w)],
+        [Paragraph("Postbank  ·  Acc no <b>1017866800015</b>  ·  Branch <b>500100</b>", body_w)],
+        [Paragraph(f"Maxy Taxi Transport  ·  TIN <b>{tin}</b>", body_w)],
+    ]
+    box = Table(inner2, colWidths=[180*mm])
+    box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#161616")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, 0), 8),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
+        ("TOPPADDING", (0, 1), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -2), 2),
+        ("LINEBEFORE", (0, 0), (0, -1), 3.5, colors.HexColor("#f5a623")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    return [box, Spacer(1, 4*mm)]
+
+
 def _pdf_draw_page_chrome(canvas, doc_, footer_label="Maxi Taxi Transport - Maseru"):
-    """Watermark + banking + gold footer; Thank you replaces SAFE-QUICK-RELIABLE."""
+    """Watermark + clean gold footer (banking is above the items table)."""
     _pdf_draw_watermark(canvas, doc_)
     canvas.saveState()
     page_w, _ = A4
-    # Banking block near bottom
-    canvas.setFillColor(colors.HexColor("#1a1a1a"))
-    canvas.setFont("Helvetica-Bold", 8)
-    canvas.drawString(15*mm, 30*mm, "Banking details")
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColor(colors.HexColor("#333333"))
-    canvas.drawString(15*mm, 26*mm, "Postbank  ·  Acc no 1017866800015  ·  Branch 500100  ·  Maxy Taxi Transport")
-    canvas.drawString(15*mm, 22.5*mm, f"TIN: {BUSINESS_TIN}")
-    # Gold line only
     canvas.setStrokeColor(colors.HexColor("#f5a623"))
     canvas.setLineWidth(1.2)
-    canvas.line(15*mm, 20*mm, page_w - 15*mm, 20*mm)
-    # Thank you at bottom (replaces SAFE-QUICK-RELIABLE)
+    canvas.line(15*mm, 16*mm, page_w - 15*mm, 16*mm)
     canvas.setFont("Helvetica-Bold", 10)
     canvas.setFillColor(colors.HexColor("#1a1a1a"))
-    canvas.drawCentredString(page_w/2, 13*mm, "Thank you for your Business")
+    canvas.drawCentredString(page_w/2, 10*mm, "Thank you for your Business")
     canvas.setFont("Helvetica", 7.5)
-    canvas.setFillColor(colors.HexColor("#5dade2"))
-    canvas.drawCentredString(page_w/2, 8*mm, footer_label)
+    canvas.setFillColor(colors.HexColor("#888888"))
+    canvas.drawCentredString(page_w/2, 5.5*mm, footer_label)
     canvas.restoreState()
 
 
@@ -1175,7 +1232,7 @@ def generate_receipt_pdf(receipt):
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
         rightMargin=12*mm, leftMargin=12*mm,
-        topMargin=5*mm, bottomMargin=34*mm,
+        topMargin=5*mm, bottomMargin=22*mm,
     )
     styles = getSampleStyleSheet()
     elements = []
@@ -1249,6 +1306,7 @@ def generate_receipt_pdf(receipt):
         Paragraph(f"<b>M {total:,.2f}</b>", bold_right),
     ])
 
+    elements.extend(_pdf_banking_elements(styles))
     tbl = Table(data, colWidths=[105*mm, 28*mm, 47*mm])
     tbl.setStyle(_pdf_line_table_style())
     elements.append(tbl)
