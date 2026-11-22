@@ -812,7 +812,7 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Large centred pin+car watermark only (~20% opacity). No text."""
+    """Large centred pin+car watermark — big, middle of A4, clearly visible."""
     canvas.saveState()
     base = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base, "watermark_taxi.png")
@@ -825,13 +825,10 @@ def _pdf_draw_watermark(canvas, doc=None):
     page_w, page_h = A4
     if path and os.path.exists(path):
         try:
-            w, h = 130*mm, 170*mm
+            # Large centred pin covering middle of page
+            w, h = 155*mm, 200*mm
             x = (page_w - w) / 2.0
-            y = (page_h - h) / 2.0 - 5*mm
-            try:
-                canvas.setFillAlpha(0.20)
-            except Exception:
-                pass
+            y = (page_h - h) / 2.0
             canvas.drawImage(
                 path, x, y, width=w, height=h,
                 mask="auto", preserveAspectRatio=True,
@@ -1134,7 +1131,9 @@ def _pdf_line_table_style():
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        # intentionally no GRID / no BOX
+        # Gold side lines on header + body only (stop before TOTAL row)
+        ("LINEBEFORE", (0, 0), (0, -2), 1.5, gold),
+        ("LINEAFTER", (-1, 0), (-1, -2), 1.5, gold),
     ])
 
 
@@ -1212,21 +1211,26 @@ def generate_receipt_pdf(receipt):
     ))
     elements.append(Spacer(1, 2*mm))
 
+    left_style = ParagraphStyle("MetaL", parent=normal, fontSize=9, leading=13)
+    right_style = ParagraphStyle("MetaR", parent=normal, fontSize=9, leading=13, alignment=TA_RIGHT)
     meta = [
-        [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", normal),
-         Paragraph(f"<b>Date:</b> {receipt.get('receipt_date', '')}", right)],
-        [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", normal),
-         Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right)],
+        [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", left_style),
+         Paragraph(f"<b>Date:</b> {receipt.get('receipt_date', '')}", right_style)],
+        [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", left_style),
+         Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right_style)],
+        [Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", left_style),
+         Paragraph("", right_style)],
     ]
     mt = Table(meta, colWidths=[95*mm, 85*mm])
     mt.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
     ]))
     elements.append(mt)
     elements.append(Spacer(1, 4*mm))
-    elements.append(Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", bold))
-    elements.append(Spacer(1, 3*mm))
 
     lines = []
     raw = str(receipt.get("description") or "").strip()
@@ -2108,10 +2112,28 @@ def page_clients():
     try:
         execute("""
             CREATE TABLE IF NOT EXISTS client_pay_status (
-                company_name TEXT PRIMARY KEY,
-                status TEXT DEFAULT 'Unpaid'
+                company_name TEXT NOT NULL,
+                expense_month TEXT NOT NULL,
+                status TEXT DEFAULT 'Unpaid',
+                PRIMARY KEY (company_name, expense_month)
             )
         """)
+    except Exception:
+        try:
+            execute("""
+                CREATE TABLE IF NOT EXISTS client_pay_status (
+                    company_name TEXT NOT NULL,
+                    expense_month TEXT NOT NULL,
+                    status TEXT DEFAULT 'Unpaid',
+                    PRIMARY KEY (company_name, expense_month)
+                )
+            """)
+        except Exception:
+            pass
+
+    # Migrate old single-key table if needed
+    try:
+        execute("ALTER TABLE client_pay_status ADD COLUMN expense_month TEXT")
     except Exception:
         pass
 
@@ -2130,7 +2152,10 @@ def page_clients():
             amounts["Waleslink"] = float(mdf["credit_waleslink"].sum()) if "credit_waleslink" in mdf.columns else 0.0
             amounts["LNLVIP"] = float(mdf["credit_lnlvip"].sum()) if "credit_lnlvip" in mdf.columns else 0.0
 
-    status_df = query_df("SELECT company_name, status FROM client_pay_status")
+    status_df = query_df(
+        "SELECT company_name, status FROM client_pay_status WHERE expense_month = ?",
+        (sel_month,),
+    )
     status_map = {}
     if status_df is not None and not status_df.empty:
         for _, r in status_df.iterrows():
@@ -2159,20 +2184,29 @@ def page_clients():
             unsafe_allow_html=True,
         )
         btn = f"Mark {cname} as {'Unpaid' if is_paid else 'Paid'}"
-        if st.button(btn, key=f"pay_toggle_{cname}", use_container_width=True):
+        if st.button(btn, key=f"pay_toggle_{cname}_{sel_month}", use_container_width=True):
             new_st = "Unpaid" if is_paid else "Paid"
             try:
                 execute(
-                    "INSERT INTO client_pay_status (company_name, status) VALUES (?, ?) "
-                    "ON CONFLICT (company_name) DO UPDATE SET status = EXCLUDED.status",
-                    (cname, new_st),
+                    "INSERT INTO client_pay_status (company_name, expense_month, status) VALUES (?, ?, ?) "
+                    "ON CONFLICT (company_name, expense_month) DO UPDATE SET status = EXCLUDED.status",
+                    (cname, sel_month, new_st),
                 )
             except Exception:
-                existing = query_df("SELECT company_name FROM client_pay_status WHERE company_name = ?", (cname,))
+                existing = query_df(
+                    "SELECT company_name FROM client_pay_status WHERE company_name = ? AND expense_month = ?",
+                    (cname, sel_month),
+                )
                 if existing is not None and not existing.empty:
-                    execute("UPDATE client_pay_status SET status = ? WHERE company_name = ?", (new_st, cname))
+                    execute(
+                        "UPDATE client_pay_status SET status = ? WHERE company_name = ? AND expense_month = ?",
+                        (new_st, cname, sel_month),
+                    )
                 else:
-                    execute("INSERT INTO client_pay_status (company_name, status) VALUES (?, ?)", (cname, new_st))
+                    execute(
+                        "INSERT INTO client_pay_status (company_name, expense_month, status) VALUES (?, ?, ?)",
+                        (cname, sel_month, new_st),
+                    )
             st.rerun()
 
     st.markdown(
