@@ -812,7 +812,7 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Large centred pin+car watermark — big, middle of A4, clearly visible."""
+    """Large centred pin+car watermark only (~20% opacity). No text."""
     canvas.saveState()
     base = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(base, "watermark_taxi.png")
@@ -825,10 +825,13 @@ def _pdf_draw_watermark(canvas, doc=None):
     page_w, page_h = A4
     if path and os.path.exists(path):
         try:
-            # Large centred pin covering middle of page
-            w, h = 155*mm, 200*mm
+            w, h = 130*mm, 170*mm
             x = (page_w - w) / 2.0
-            y = (page_h - h) / 2.0
+            y = (page_h - h) / 2.0 - 5*mm
+            try:
+                canvas.setFillAlpha(0.20)
+            except Exception:
+                pass
             canvas.drawImage(
                 path, x, y, width=w, height=h,
                 mask="auto", preserveAspectRatio=True,
@@ -1131,9 +1134,7 @@ def _pdf_line_table_style():
         ("LEFTPADDING", (0, 0), (-1, -1), 7),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        # Gold side lines only (no full grid)
-        ("LINEBEFORE", (0, 0), (0, -1), 1.5, gold),
-        ("LINEAFTER", (-1, 0), (-1, -1), 1.5, gold),
+        # intentionally no GRID / no BOX
     ])
 
 
@@ -1211,48 +1212,21 @@ def generate_receipt_pdf(receipt):
     ))
     elements.append(Spacer(1, 2*mm))
 
-    gold = colors.HexColor("#f5a623")
-    left_style = ParagraphStyle("MetaL", parent=normal, fontSize=9, leading=13)
-    right_style = ParagraphStyle("MetaR", parent=normal, fontSize=9, leading=13)
-    left_box = Table([
-        [Paragraph(f"<b>Receipt No</b><br/>{receipt.get('receipt_number', '')}", left_style)],
-        [Paragraph(f"<b>Payment</b><br/>{receipt.get('payment_method', 'Cash')}", left_style)],
-        [Paragraph(f"<b>Received from</b><br/>{receipt.get('received_from', '')}", left_style)],
-    ], colWidths=[88*mm])
-    left_box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("LINEBEFORE", (0, 0), (0, -1), 3.0, gold),
-        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    meta = [
+        [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", normal),
+         Paragraph(f"<b>Date:</b> {receipt.get('receipt_date', '')}", right)],
+        [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", normal),
+         Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right)],
+    ]
+    mt = Table(meta, colWidths=[95*mm, 85*mm])
+    mt.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
-    right_box = Table([
-        [Paragraph(f"<b>Date</b><br/>{receipt.get('receipt_date', '')}", right_style)],
-        [Paragraph(f"<b>Related invoice</b><br/>{receipt.get('related_invoice') or '—'}", right_style)],
-    ], colWidths=[88*mm])
-    right_box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("LINEBEFORE", (0, 0), (0, -1), 3.0, gold),
-        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
-    meta_row = Table([[left_box, right_box]], colWidths=[90*mm, 90*mm])
-    meta_row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    elements.append(meta_row)
+    elements.append(mt)
     elements.append(Spacer(1, 4*mm))
+    elements.append(Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", bold))
+    elements.append(Spacer(1, 3*mm))
 
     lines = []
     raw = str(receipt.get("description") or "").strip()
