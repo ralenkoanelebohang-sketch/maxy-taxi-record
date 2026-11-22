@@ -812,24 +812,24 @@ def _pdf_letterhead_elements(styles=None):
 
 
 def _pdf_draw_watermark(canvas, doc=None):
-    """Large centred logo watermark ~12% opacity (documents)."""
+    """Large centred pin+car watermark only (~20% opacity). No text."""
     canvas.saveState()
     base = os.path.dirname(os.path.abspath(__file__))
-    path = None
-    for name in ("logo_clean.png", "logo_pin.png", "watermark_taxi.png", "logo_transparent.png"):
-        pth = os.path.join(base, name)
-        if os.path.exists(pth):
-            path = pth
-            break
+    path = os.path.join(base, "watermark_taxi.png")
+    if not os.path.exists(path):
+        for name in ("logo_pin.png", "logo_clean.png"):
+            pth = os.path.join(base, name)
+            if os.path.exists(pth):
+                path = pth
+                break
     page_w, page_h = A4
-    if path:
+    if path and os.path.exists(path):
         try:
-            # Large, centred
-            w, h = 140*mm, 90*mm
+            w, h = 130*mm, 170*mm
             x = (page_w - w) / 2.0
-            y = (page_h - h) / 2.0
+            y = (page_h - h) / 2.0 - 5*mm
             try:
-                canvas.setFillAlpha(0.12)
+                canvas.setFillAlpha(0.20)
             except Exception:
                 pass
             canvas.drawImage(
@@ -838,14 +838,6 @@ def _pdf_draw_watermark(canvas, doc=None):
             )
         except Exception:
             pass
-    # Soft brand text under logo
-    try:
-        canvas.setFillAlpha(0.10)
-    except Exception:
-        pass
-    canvas.setFillColor(colors.HexColor("#888888"))
-    canvas.setFont("Helvetica-Bold", 28)
-    canvas.drawCentredString(page_w / 2.0, page_h / 2.0 - 55*mm, "MAXY TAXI")
     canvas.restoreState()
 
 
@@ -987,7 +979,7 @@ def generate_invoice_pdf(invoice, client=None):
     elements.append(items_table)
 
     def _draw_inv_footer(canvas, doc_):
-        _pdf_draw_page_chrome(canvas, doc_, "Maxi Taxi Transport - Maseru - Invoice")
+        _pdf_draw_page_chrome(canvas, doc_, "Maxy Taxi - Maseru - Invoice")
 
     doc.build(elements, onFirstPage=_draw_inv_footer, onLaterPages=_draw_inv_footer)
     buffer.seek(0)
@@ -1113,7 +1105,7 @@ def generate_quotation_pdf(quote, client=None):
         elements.append(Paragraph(quote["notes"], normal))
 
     def _draw_quote_footer(canvas, doc_):
-        _pdf_draw_page_chrome(canvas, doc_, "Maxi Taxi Transport - Maseru - Quotation")
+        _pdf_draw_page_chrome(canvas, doc_, "Maxy Taxi - Maseru - Quotation")
 
     doc.build(elements, onFirstPage=_draw_quote_footer, onLaterPages=_draw_quote_footer)
     buffer.seek(0)
@@ -1147,30 +1139,25 @@ def _pdf_line_table_style():
 
 
 def _pdf_banking_elements(styles=None):
-    """Yellow left-border banking card — placed above description table."""
+    """White banking card, yellow left border — above description table."""
     styles = styles or getSampleStyleSheet()
-    label = ParagraphStyle(
-        "BankLbl", parent=styles["Normal"], fontSize=8, leading=11,
-        textColor=colors.HexColor("#888888"), spaceAfter=1,
+    title = ParagraphStyle(
+        "BankTitle", parent=styles["Normal"], fontSize=9, leading=12,
+        textColor=colors.HexColor("#c47a00"), fontName="Helvetica-Bold",
     )
     body = ParagraphStyle(
         "BankBody", parent=styles["Normal"], fontSize=9, leading=12,
         textColor=colors.HexColor("#1a1a1a"),
     )
-    title = ParagraphStyle(
-        "BankTitle", parent=styles["Normal"], fontSize=9, leading=12,
-        textColor=colors.HexColor("#1a1a1a"), fontName="Helvetica-Bold",
-    )
     tin = BUSINESS_TIN or "—"
     inner = [
         [Paragraph("BANKING DETAILS", title)],
-        [Paragraph("Postbank", body)],
-        [Paragraph("Account no: <b>1017866800015</b>  ·  Branch: <b>500100</b>", body)],
-        [Paragraph(f"Account name: <b>Maxy Taxi Transport</b>  ·  TIN: <b>{tin}</b>", body)],
+        [Paragraph("Postbank  ·  Acc no <b>1017866800015</b>  ·  Branch <b>500100</b>", body)],
+        [Paragraph(f"Maxy Taxi  ·  TIN <b>{tin}</b>", body)],
     ]
     box = Table(inner, colWidths=[180*mm])
     box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#1a1a1a")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("LEFTPADDING", (0, 0), (-1, -1), 12),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
         ("TOPPADDING", (0, 0), (-1, 0), 8),
@@ -1178,38 +1165,13 @@ def _pdf_banking_elements(styles=None):
         ("TOPPADDING", (0, 1), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -2), 2),
         ("LINEBEFORE", (0, 0), (0, -1), 3.5, colors.HexColor("#f5a623")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    # light text on dark needs white-ish body
-    body_w = ParagraphStyle(
-        "BankBodyW", parent=styles["Normal"], fontSize=9, leading=12,
-        textColor=colors.HexColor("#eeeeee"),
-    )
-    title_w = ParagraphStyle(
-        "BankTitleW", parent=styles["Normal"], fontSize=9, leading=12,
-        textColor=colors.HexColor("#f5a623"), fontName="Helvetica-Bold",
-    )
-    inner2 = [
-        [Paragraph("BANKING DETAILS", title_w)],
-        [Paragraph("Postbank  ·  Acc no <b>1017866800015</b>  ·  Branch <b>500100</b>", body_w)],
-        [Paragraph(f"Maxy Taxi Transport  ·  TIN <b>{tin}</b>", body_w)],
-    ]
-    box = Table(inner2, colWidths=[180*mm])
-    box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#161616")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, 0), 8),
-        ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
-        ("TOPPADDING", (0, 1), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -2), 2),
-        ("LINEBEFORE", (0, 0), (0, -1), 3.5, colors.HexColor("#f5a623")),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     return [box, Spacer(1, 4*mm)]
 
 
-def _pdf_draw_page_chrome(canvas, doc_, footer_label="Maxi Taxi Transport - Maseru"):
+def _pdf_draw_page_chrome(canvas, doc_, footer_label="Maxy Taxi - Maseru"):
     """Watermark + clean gold footer (banking is above the items table)."""
     _pdf_draw_watermark(canvas, doc_)
     canvas.saveState()
@@ -1312,7 +1274,7 @@ def generate_receipt_pdf(receipt):
     elements.append(tbl)
 
     def _footer(canvas, doc_):
-        _pdf_draw_page_chrome(canvas, doc_, "Maxi Taxi Transport - Maseru - Official Receipt")
+        _pdf_draw_page_chrome(canvas, doc_, "Maxy Taxi - Maseru - Official Receipt")
 
     doc.build(elements, onFirstPage=_footer, onLaterPages=_footer)
     buffer.seek(0)
@@ -1370,7 +1332,7 @@ def generate_weekly_summary_pdf(monday, sunday, wdf, byv, cash, credits, fuel, t
         elements.append(tw)
 
     elements.append(Spacer(1, 8*mm))
-    elements.append(Paragraph("Maxy Taxi Transport · Sole trader · Maseru", normal))
+    elements.append(Paragraph("Maxy Taxi · Sole trader · Maseru", normal))
     doc.build(elements)
     buffer.seek(0)
     return buffer.getvalue()
