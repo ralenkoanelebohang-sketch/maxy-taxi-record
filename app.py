@@ -2109,35 +2109,90 @@ def page_clients():
     month_options = [label for _, _, label in FY_MONTHS]
     sel_month = st.selectbox("Select month", month_options, key="clients_month")
 
-    try:
-        execute("""
-            CREATE TABLE IF NOT EXISTS client_pay_status (
-                company_name TEXT NOT NULL,
-                expense_month TEXT NOT NULL,
-                status TEXT DEFAULT 'Unpaid',
-                PRIMARY KEY (company_name, expense_month)
-            )
-        """)
-    except Exception:
+    def _ensure_pay_table():
         try:
             execute("""
-                CREATE TABLE IF NOT EXISTS client_pay_status (
-                    company_name TEXT NOT NULL,
-                    expense_month TEXT NOT NULL,
-                    status TEXT DEFAULT 'Unpaid',
-                    PRIMARY KEY (company_name, expense_month)
+                CREATE TABLE IF NOT EXISTS client_pay_status_m (
+                    status_key TEXT PRIMARY KEY,
+                    company_name TEXT,
+                    expense_month TEXT,
+                    status TEXT DEFAULT 'Unpaid'
                 )
             """)
         except Exception:
             pass
 
-    # Migrate old single-key table if needed
-    try:
-        execute("ALTER TABLE client_pay_status ADD COLUMN expense_month TEXT")
-    except Exception:
-        pass
+    def _pay_key(company, month):
+        return f"{company}||{month}"
 
-    # Amounts for selected month
+    def _get_status_map(month):
+        _ensure_pay_table()
+        sm = {}
+        try:
+            dfm = query_df(
+                "SELECT company_name, status FROM client_pay_status_m WHERE expense_month = ?",
+                (month,),
+            )
+            if dfm is not None and not dfm.empty:
+                for _, r in dfm.iterrows():
+                    sm[str(r["company_name"])] = str(r["status"] or "Unpaid")
+        except Exception:
+            pass
+        if not sm:
+            try:
+                dfo = query_df("SELECT company_name, status FROM client_pay_status")
+                if dfo is not None and not dfo.empty:
+                    for _, r in dfo.iterrows():
+                        k = str(r["company_name"] or "")
+                        if "||" in k:
+                            co, mo = k.split("||", 1)
+                            if mo == month:
+                                sm[co] = str(r["status"] or "Unpaid")
+            except Exception:
+                pass
+        return sm
+
+    def _set_pay_status(company, month, status):
+        _ensure_pay_table()
+        key = _pay_key(company, month)
+        try:
+            existing = query_df(
+                "SELECT status_key FROM client_pay_status_m WHERE status_key = ?",
+                (key,),
+            )
+            if existing is not None and not existing.empty:
+                execute(
+                    "UPDATE client_pay_status_m SET status = ? WHERE status_key = ?",
+                    (status, key),
+                )
+            else:
+                execute(
+                    "INSERT INTO client_pay_status_m (status_key, company_name, expense_month, status) VALUES (?, ?, ?, ?)",
+                    (key, company, month, status),
+                )
+            return True
+        except Exception:
+            pass
+        try:
+            existing = query_df(
+                "SELECT company_name FROM client_pay_status WHERE company_name = ?",
+                (key,),
+            )
+            if existing is not None and not existing.empty:
+                execute(
+                    "UPDATE client_pay_status SET status = ? WHERE company_name = ?",
+                    (status, key),
+                )
+            else:
+                execute(
+                    "INSERT INTO client_pay_status (company_name, status) VALUES (?, ?)",
+                    (key, status),
+                )
+            return True
+        except Exception as e:
+            st.error(f"Could not save paid status: {e}")
+            return False
+
     amounts = {
         "Alliance": 0.0, "Lehae": 0.0, "World Vision": 0.0,
         "Waleslink": 0.0, "LNLVIP": 0.0,
@@ -2152,14 +2207,7 @@ def page_clients():
             amounts["Waleslink"] = float(mdf["credit_waleslink"].sum()) if "credit_waleslink" in mdf.columns else 0.0
             amounts["LNLVIP"] = float(mdf["credit_lnlvip"].sum()) if "credit_lnlvip" in mdf.columns else 0.0
 
-    status_df = query_df(
-        "SELECT company_name, status FROM client_pay_status WHERE expense_month = ?",
-        (sel_month,),
-    )
-    status_map = {}
-    if status_df is not None and not status_df.empty:
-        for _, r in status_df.iterrows():
-            status_map[str(r["company_name"])] = str(r["status"] or "Unpaid")
+    status_map = _get_status_map(sel_month)
 
     total = 0.0
     for cname, amt in amounts.items():
@@ -2186,28 +2234,8 @@ def page_clients():
         btn = f"Mark {cname} as {'Unpaid' if is_paid else 'Paid'}"
         if st.button(btn, key=f"pay_toggle_{cname}_{sel_month}", use_container_width=True):
             new_st = "Unpaid" if is_paid else "Paid"
-            try:
-                execute(
-                    "INSERT INTO client_pay_status (company_name, expense_month, status) VALUES (?, ?, ?) "
-                    "ON CONFLICT (company_name, expense_month) DO UPDATE SET status = EXCLUDED.status",
-                    (cname, sel_month, new_st),
-                )
-            except Exception:
-                existing = query_df(
-                    "SELECT company_name FROM client_pay_status WHERE company_name = ? AND expense_month = ?",
-                    (cname, sel_month),
-                )
-                if existing is not None and not existing.empty:
-                    execute(
-                        "UPDATE client_pay_status SET status = ? WHERE company_name = ? AND expense_month = ?",
-                        (new_st, cname, sel_month),
-                    )
-                else:
-                    execute(
-                        "INSERT INTO client_pay_status (company_name, expense_month, status) VALUES (?, ?, ?)",
-                        (cname, sel_month, new_st),
-                    )
-            st.rerun()
+            if _set_pay_status(cname, sel_month, new_st):
+                st.rerun()
 
     st.markdown(
         f"""
