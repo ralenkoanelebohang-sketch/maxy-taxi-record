@@ -1132,72 +1132,56 @@ def _pdf_line_table_style():
         # Gold side lines on header + body only (stop before TOTAL row)
         ("LINEBEFORE", (0, 0), (0, -2), 1.5, gold),
         ("LINEAFTER", (-1, 0), (-1, -2), 1.5, gold),
-        # TOTAL row in its own border
-        ("BOX", (0, -1), (-1, -1), 1.2, gold),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fff8e6")),
+        # Small border only around TOTAL label + amount (not full row)
+        ("BOX", (1, -1), (-1, -1), 1.2, gold),
+        ("BACKGROUND", (1, -1), (-1, -1), colors.HexColor("#fff8e6")),
     ])
 
 
 def _pdf_banking_elements(styles=None):
-    """Banking details: left bank info, right TIN / registration — yellow side borders."""
+    """Compact banking card: 2x2 fields, single gold-side border."""
     styles = styles or getSampleStyleSheet()
     gold = colors.HexColor("#f5a623")
     title = ParagraphStyle(
-        "BankTitle", parent=styles["Normal"], fontSize=9, leading=12,
+        "BankTitle", parent=styles["Normal"], fontSize=8, leading=10,
         textColor=colors.HexColor("#c47a00"), fontName="Helvetica-Bold",
     )
     body = ParagraphStyle(
-        "BankBody", parent=styles["Normal"], fontSize=9, leading=13,
+        "BankBody", parent=styles["Normal"], fontSize=8, leading=11,
         textColor=colors.HexColor("#1a1a1a"),
     )
     tin = BUSINESS_TIN or "200062844-2"
     reg = BUSINESS_REG if "BUSINESS_REG" in globals() else "2023/8663"
-    left = Table([
-        [Paragraph("BANKING DETAILS", title)],
-        [Paragraph("<b>Bank name:</b> Postbank", body)],
-        [Paragraph("<b>Account no:</b> 1017866800015", body)],
-        [Paragraph("<b>Account name:</b> Maxy Taxi", body)],
-        [Paragraph("<b>Branch code:</b> 500100", body)],
-    ], colWidths=[95*mm])
-    left.setStyle(TableStyle([
+    # 2 x 2 sequence
+    grid = [
+        [Paragraph("<b>Bank name:</b> Postbank", body),
+         Paragraph("<b>Account no:</b> 1017866800015", body)],
+        [Paragraph("<b>Account name:</b> Maxy Taxi", body),
+         Paragraph("<b>Branch code:</b> 500100", body)],
+        [Paragraph(f"<b>TIN:</b> {tin}", body),
+         Paragraph(f"<b>Registration No:</b> {reg}", body)],
+    ]
+    box = Table(grid, colWidths=[90*mm, 90*mm])
+    box.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("LINEBEFORE", (0, 0), (0, -1), 3.0, gold),
-        ("LINEAFTER", (-1, 0), (-1, -1), 1.0, gold),
         ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("TOPPADDING", (0, 0), (-1, 0), 6),
-        ("BOTTOMPADDING", (0, -1), (-1, -1), 6),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
-    right = Table([
-        [Paragraph("&nbsp;", title)],
-        [Paragraph(f"<b>TIN:</b> {tin}", body)],
-        [Paragraph(f"<b>Registration No:</b> {reg}", body)],
-        [Paragraph("&nbsp;", body)],
-        [Paragraph("&nbsp;", body)],
-    ], colWidths=[80*mm])
-    right.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("LINEBEFORE", (0, 0), (0, -1), 3.0, gold),
-        ("LINEAFTER", (-1, 0), (-1, -1), 1.0, gold),
-        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("TOPPADDING", (0, 0), (-1, 0), 6),
-        ("BOTTOMPADDING", (0, -1), (-1, -1), 6),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
-    row = Table([[left, right]], colWidths=[98*mm, 82*mm])
-    row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    header = Paragraph("BANKING DETAILS", title)
+    wrap = Table([[header], [box]], colWidths=[180*mm])
+    wrap.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, 0), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 2),
+        ("TOPPADDING", (0, 1), (-1, 1), 0),
     ]))
-    return [row, Spacer(1, 4*mm)]
+    return [wrap, Spacer(1, 3*mm)]
 
 
 def _pdf_draw_page_chrome(canvas, doc_, footer_label="Maxy Taxi - Maseru"):
@@ -1242,46 +1226,29 @@ def generate_receipt_pdf(receipt):
     elements.append(Spacer(1, 2*mm))
 
     gold = colors.HexColor("#f5a623")
-    left_style = ParagraphStyle("MetaL", parent=normal, fontSize=9, leading=13)
-    right_style = ParagraphStyle("MetaR", parent=normal, fontSize=9, leading=13)
-    left_box = Table([
-        [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", left_style)],
-        [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", left_style)],
-        [Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", left_style)],
-    ], colWidths=[88*mm])
-    left_box.setStyle(TableStyle([
+    left_style = ParagraphStyle("MetaL", parent=normal, fontSize=9, leading=12)
+    right_style = ParagraphStyle("MetaR", parent=normal, fontSize=9, leading=12, alignment=TA_RIGHT)
+    meta = [
+        [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", left_style),
+         Paragraph(f"<b>Date:</b> {receipt.get('receipt_date', '')}", right_style)],
+        [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", left_style),
+         Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right_style)],
+        [Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", left_style),
+         Paragraph("", right_style)],
+    ]
+    mt = Table(meta, colWidths=[95*mm, 85*mm])
+    mt.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("LINEBEFORE", (0, 0), (0, -1), 2.5, gold),
-        ("LINEAFTER", (-1, 0), (-1, -1), 2.5, gold),
         ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
-    right_box = Table([
-        [Paragraph(f"<b>Date:</b> {receipt.get('receipt_date', '')}", right_style)],
-        [Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right_style)],
-    ], colWidths=[88*mm])
-    right_box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("LINEBEFORE", (0, 0), (0, -1), 2.5, gold),
-        ("LINEAFTER", (-1, 0), (-1, -1), 2.5, gold),
-        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
-    meta_row = Table([[left_box, right_box]], colWidths=[90*mm, 90*mm])
-    meta_row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    elements.append(meta_row)
-    elements.append(Spacer(1, 4*mm))
+    elements.append(mt)
+    elements.append(Spacer(1, 3*mm))
 
     lines = []
     raw = str(receipt.get("description") or "").strip()
