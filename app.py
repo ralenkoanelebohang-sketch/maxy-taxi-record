@@ -299,15 +299,12 @@ def check_password():
         st.markdown('<div class="xmas-card">', unsafe_allow_html=True)
         st.markdown('<div class="xmas-hat">🎅</div>', unsafe_allow_html=True)
 
-        logo = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
-        logo2 = os.path.join(os.path.dirname(__file__), "logo_icon.jpg")
-        logo3 = os.path.join(os.path.dirname(__file__), "logo_clean.png")
-        if os.path.exists(logo):
-            st.image(logo, use_container_width=True)
-        elif os.path.exists(logo2):
-            st.image(logo2, use_container_width=True)
-        elif os.path.exists(logo3):
-            st.image(logo3, use_container_width=True)
+        base = os.path.dirname(__file__)
+        for name in ("logo_3d.png", "logo_3d_pin.png", "logo_on_black.jpg", "logo_clean.png", "logo_icon.jpg"):
+            path = os.path.join(base, name)
+            if os.path.exists(path):
+                st.image(path, use_container_width=True)
+                break
 
         st.markdown("""
             <p class="xmas-name">Maxy Taxi</p>
@@ -348,6 +345,7 @@ BUSINESS_PHONE = "+266 27333388 / 68335933"
 BUSINESS_WHATSAPP = "+266 56432571"
 BUSINESS_EMAIL = "maxytaxicab@gmail.com"
 BUSINESS_TIN = "200062844-2"
+BUSINESS_REG = "2023/8663"
 CURRENCY = "M"
 
 # Monthly credit clients
@@ -1134,40 +1132,72 @@ def _pdf_line_table_style():
         # Gold side lines on header + body only (stop before TOTAL row)
         ("LINEBEFORE", (0, 0), (0, -2), 1.5, gold),
         ("LINEAFTER", (-1, 0), (-1, -2), 1.5, gold),
+        # TOTAL row in its own border
+        ("BOX", (0, -1), (-1, -1), 1.2, gold),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fff8e6")),
     ])
 
 
 def _pdf_banking_elements(styles=None):
-    """White banking card, yellow left border — above description table."""
+    """Banking details: left bank info, right TIN / registration — yellow side borders."""
     styles = styles or getSampleStyleSheet()
+    gold = colors.HexColor("#f5a623")
     title = ParagraphStyle(
         "BankTitle", parent=styles["Normal"], fontSize=9, leading=12,
         textColor=colors.HexColor("#c47a00"), fontName="Helvetica-Bold",
     )
     body = ParagraphStyle(
-        "BankBody", parent=styles["Normal"], fontSize=9, leading=12,
+        "BankBody", parent=styles["Normal"], fontSize=9, leading=13,
         textColor=colors.HexColor("#1a1a1a"),
     )
-    tin = BUSINESS_TIN or "—"
-    inner = [
+    tin = BUSINESS_TIN or "200062844-2"
+    reg = BUSINESS_REG if "BUSINESS_REG" in globals() else "2023/8663"
+    left = Table([
         [Paragraph("BANKING DETAILS", title)],
-        [Paragraph("Postbank  ·  Acc no <b>1017866800015</b>  ·  Branch <b>500100</b>", body)],
-        [Paragraph(f"Maxy Taxi  ·  TIN <b>{tin}</b>", body)],
-    ]
-    box = Table(inner, colWidths=[180*mm])
-    box.setStyle(TableStyle([
+        [Paragraph("<b>Bank name:</b> Postbank", body)],
+        [Paragraph("<b>Account no:</b> 1017866800015", body)],
+        [Paragraph("<b>Account name:</b> Maxy Taxi", body)],
+        [Paragraph("<b>Branch code:</b> 500100", body)],
+    ], colWidths=[95*mm])
+    left.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-        ("LEFTPADDING", (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, 0), 8),
-        ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
-        ("TOPPADDING", (0, 1), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -2), 2),
-        ("LINEBEFORE", (0, 0), (0, -1), 3.5, colors.HexColor("#f5a623")),
+        ("LINEBEFORE", (0, 0), (0, -1), 3.0, gold),
+        ("LINEAFTER", (-1, 0), (-1, -1), 1.0, gold),
         ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 6),
     ]))
-    return [box, Spacer(1, 4*mm)]
+    right = Table([
+        [Paragraph("&nbsp;", title)],
+        [Paragraph(f"<b>TIN:</b> {tin}", body)],
+        [Paragraph(f"<b>Registration No:</b> {reg}", body)],
+        [Paragraph("&nbsp;", body)],
+        [Paragraph("&nbsp;", body)],
+    ], colWidths=[80*mm])
+    right.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("LINEBEFORE", (0, 0), (0, -1), 3.0, gold),
+        ("LINEAFTER", (-1, 0), (-1, -1), 1.0, gold),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 6),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    row = Table([[left, right]], colWidths=[98*mm, 82*mm])
+    row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return [row, Spacer(1, 4*mm)]
 
 
 def _pdf_draw_page_chrome(canvas, doc_, footer_label="Maxy Taxi - Maseru"):
@@ -1211,25 +1241,46 @@ def generate_receipt_pdf(receipt):
     ))
     elements.append(Spacer(1, 2*mm))
 
+    gold = colors.HexColor("#f5a623")
     left_style = ParagraphStyle("MetaL", parent=normal, fontSize=9, leading=13)
-    right_style = ParagraphStyle("MetaR", parent=normal, fontSize=9, leading=13, alignment=TA_RIGHT)
-    meta = [
-        [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", left_style),
-         Paragraph(f"<b>Date:</b> {receipt.get('receipt_date', '')}", right_style)],
-        [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", left_style),
-         Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right_style)],
-        [Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", left_style),
-         Paragraph("", right_style)],
-    ]
-    mt = Table(meta, colWidths=[95*mm, 85*mm])
-    mt.setStyle(TableStyle([
+    right_style = ParagraphStyle("MetaR", parent=normal, fontSize=9, leading=13)
+    left_box = Table([
+        [Paragraph(f"<b>Receipt No:</b> {receipt.get('receipt_number', '')}", left_style)],
+        [Paragraph(f"<b>Payment:</b> {receipt.get('payment_method', 'Cash')}", left_style)],
+        [Paragraph(f"<b>Received from:</b> {receipt.get('received_from', '')}", left_style)],
+    ], colWidths=[88*mm])
+    left_box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, gold),
+        ("LINEAFTER", (-1, 0), (-1, -1), 2.5, gold),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    right_box = Table([
+        [Paragraph(f"<b>Date:</b> {receipt.get('receipt_date', '')}", right_style)],
+        [Paragraph(f"<b>Related invoice:</b> {receipt.get('related_invoice') or '—'}", right_style)],
+    ], colWidths=[88*mm])
+    right_box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, gold),
+        ("LINEAFTER", (-1, 0), (-1, -1), 2.5, gold),
+        ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#e8e0d0")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    meta_row = Table([[left_box, right_box]], colWidths=[90*mm, 90*mm])
+    meta_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
     ]))
-    elements.append(mt)
+    elements.append(meta_row)
     elements.append(Spacer(1, 4*mm))
 
     lines = []
@@ -1457,17 +1508,14 @@ def _set_meta(key, value):
 
 
 def page_dashboard():
-    logo_dark = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
-    logo_trans = os.path.join(os.path.dirname(__file__), "logo_transparent.png")
-    logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
     col_l, col_t = st.columns([1, 3])
     with col_l:
-        if os.path.exists(logo_dark):
-            st.image(logo_dark, use_container_width=True)
-        elif os.path.exists(logo_trans):
-            st.image(logo_trans, use_container_width=True)
-        elif os.path.exists(logo_clean):
-            st.image(logo_clean, use_container_width=True)
+        base = os.path.dirname(__file__)
+        for name in ("logo_3d.png", "logo_3d_pin.png", "logo_on_black.jpg", "logo_transparent.png", "logo_clean.png"):
+            path = os.path.join(base, name)
+            if os.path.exists(path):
+                st.image(path, use_container_width=True)
+                break
     with col_t:
         st.header("Dashboard")
         st.caption("Financial Year 2026 – 2027 (June to May) · Sole trader")
@@ -3949,16 +3997,15 @@ def main():
     <div style="border: 2px solid #f5a623; border-radius: 12px; padding: 14px; margin-bottom: 12px; background: #111;">
     """, unsafe_allow_html=True)
 
-    logo_dark = os.path.join(os.path.dirname(__file__), "logo_on_black.jpg")
-    logo_trans = os.path.join(os.path.dirname(__file__), "logo_transparent.png")
-    logo_clean = os.path.join(os.path.dirname(__file__), "logo_clean.png")
-    if os.path.exists(logo_dark):
-        st.sidebar.image(logo_dark, use_container_width=True)
-    elif os.path.exists(logo_trans):
-        st.sidebar.image(logo_trans, use_container_width=True)
-    elif os.path.exists(logo_clean):
-        st.sidebar.image(logo_clean, use_container_width=True)
-    else:
+    base = os.path.dirname(__file__)
+    shown = False
+    for name in ("logo_3d.png", "logo_3d_pin.png", "logo_on_black.jpg", "logo_transparent.png", "logo_clean.png"):
+        path = os.path.join(base, name)
+        if os.path.exists(path):
+            st.sidebar.image(path, use_container_width=True)
+            shown = True
+            break
+    if not shown:
         st.sidebar.markdown("<h3 style='color:#f5a623; text-align:center; margin:0;'>MAXY TAXI</h3>", unsafe_allow_html=True)
 
     st.sidebar.markdown("""
